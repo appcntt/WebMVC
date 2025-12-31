@@ -53,7 +53,6 @@ const Login: React.FC = () => {
       }
     } catch (error) {
       console.error('Login error:', error);
-
       const errorMessage = error instanceof Error ? error.message : 'Sai tên đăng nhập hoặc mật khẩu!';
 
       toast.error(errorMessage, {

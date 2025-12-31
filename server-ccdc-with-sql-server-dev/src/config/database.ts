@@ -10,7 +10,7 @@ const config: sql.config = {
   database: process.env.DB_NAME || '',
   port: parseInt(process.env.DB_PORT || '1433'),
   options: {
-    encrypt: true,
+    encrypt: false,
     trustServerCertificate: true,
     enableArithAbort: true
   },

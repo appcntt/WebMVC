@@ -66,7 +66,7 @@ async function seedAdmin() {
                 'view_employees', 'create_employee', 'update_employee', 'delete_soft_employee', 'permanent_delete_employee', 'restore_employee',
                 'view_all_employees', 'view_department_employees',
                 'view_tools', 'create_tool', 'update_tool', 'delete_tool',
-                'manage_system'
+                'manage_system','view_all_employees','manage_positions','create_position','update_position'
             ]);
 
             const posResult = await pool.request()
