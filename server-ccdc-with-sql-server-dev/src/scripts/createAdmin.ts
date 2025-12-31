@@ -13,7 +13,7 @@ async function seedAdmin() {
 
         // 1. TẠO UNIT (Thay đổi unitId thành string)
         console.log('\n📍 Creating Units...');
-        let unitId: string; 
+        let unitId: string;
         const unitCheck = await pool.request()
             .input('uCode', sql.NVarChar, 'ADMIN')
             .query("SELECT id FROM Units WHERE code = @uCode");
@@ -62,12 +62,7 @@ async function seedAdmin() {
             .query("SELECT id FROM Positions WHERE code = @pCode");
 
         if (posCheck.recordset.length === 0) {
-            const allPermissions = JSON.stringify([
-                'view_employees', 'create_employee', 'update_employee', 'delete_soft_employee', 'permanent_delete_employee', 'restore_employee',
-                'view_all_employees', 'view_department_employees',
-                'view_tools', 'create_tool', 'update_tool', 'delete_tool',
-                'manage_system','view_all_employees','manage_positions','create_position','update_position'
-            ]);
+            const allPermissions = JSON.stringify(["view_all_employees", "view_department_employees", "create_employee", "update_employee", "delete_soft_employee", "restore_employee", "permanent_delete_employee", "view_all_tools", "view_department_tools", "view_assigned_tools", "create_tool", "update_tool", "delete_tool", "create_category_tool", "update_category_tool", "delete_category_tool", "restore_tool", "permanent_delete_tool", "assign_tool", "revoke_tool", "view_all_history", "manage_units", "create_units", "update_units", "delete_units", "manage_departments", "create_departments", "update_departments", "delete_departments", "manage_positions", "create_position", "update_position", "delete_position", "delete_history", "export_data", "manage_system"]);
 
             const posResult = await pool.request()
                 .input('name', sql.NVarChar, 'Super Admin')
