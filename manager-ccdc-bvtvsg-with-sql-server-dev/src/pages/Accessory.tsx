@@ -137,9 +137,6 @@ const AccessoryManagement = () => {
         try {
             setLoadingSubTools(true);
 
-            // ✅ Debug: Kiểm tra employeeId
-            console.log('🔍 Loading tools for employeeId:', employeeId);
-
             const toolsResponse = await toolService.getAll({
                 assignedTo: employeeId,
                 status: 'Đang sử dụng',
@@ -148,7 +145,6 @@ const AccessoryManagement = () => {
 
             const employeeTools = toolsResponse.data || [];
 
-            console.log('📦 Employee Tools:', employeeTools);
 
             if (employeeTools.length === 0) {
                 console.log('⚠️ Nhân viên chưa có Tool nào');
@@ -156,9 +152,8 @@ const AccessoryManagement = () => {
                 return;
             }
 
-            // ✅ Sửa: Dùng _id thay vì id (hoặc tool._id || tool.id để an toàn)
             const subToolPromises = employeeTools.map((tool: any) => {
-                const toolId = tool._id || tool.id; // ← Hỗ trợ cả 2 trường hợp
+                const toolId = tool._id || tool.id;
                 console.log('📝 Fetching subtools for tool:', toolId, tool.name);
                 return subToolService.getByParentTool(toolId);
             });
@@ -166,17 +161,13 @@ const AccessoryManagement = () => {
             const subToolResponses = await Promise.all(subToolPromises);
             const allSubTools = subToolResponses.flatMap(res => res.data || []);
 
-            console.log('🔧 All SubTools:', allSubTools);
 
             const compatibleSubTools = allSubTools.filter((subTool: any) => {
                 const typeName = subTool.subToolTypeInfo?.name || '';
-                console.log(`   - SubTool: ${subTool.name}, Type: ${typeName}`);
-                // ✅ Cho phép cả "Thùng máy tính" và "Thùng CPU"
                 const compatibleTypes = ['Thùng máy tính', 'Thùng CPU', 'Case'];
                 return compatibleTypes.includes(typeName);
             });
 
-            console.log('✅ Compatible SubTools (Thùng máy tính):', compatibleSubTools);
 
             setAvailableSubTools(compatibleSubTools);
         } catch (error) {
@@ -257,8 +248,6 @@ const AccessoryManagement = () => {
     };
 
     const handleDelete = async (id: string) => {
-        // ✅ Thêm validation
-        console.log('🗑️ Deleting accessory with ID:', id);
 
         if (!id) {
             toast.error('ID không hợp lệ');
@@ -417,7 +406,7 @@ const AccessoryManagement = () => {
                         'Authorization': `Bearer ${token}`
                     },
                     body: JSON.stringify(dataToSubmit)
-                });
+                }); 
 
                 const result = await response.json();
 

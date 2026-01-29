@@ -10,19 +10,19 @@ router.get('/:id', authenticateToken, categoryController.getCategoryById);
 
 router.post('/', 
   authenticateToken, 
-  checkPermission('[create_category_tool]'), 
+  checkPermission('create_category_tool'), 
   categoryController.createCategory
 );
 
 router.put('/:id', 
   authenticateToken, 
-  checkPermission('[update_category_tool]'), 
+  checkPermission('update_category_tool'), 
   categoryController.updateCategory
 );
 
 router.delete('/:id', 
   authenticateToken, 
-  checkPermission('[delete_category_tool]'), 
+  checkPermission('delete_category_tool'), 
   categoryController.deleteCategory
 );
 

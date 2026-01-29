@@ -1,16 +1,13 @@
 import multer from 'multer';
 import { Request } from 'express';
 
-// Cấu hình lưu trữ trong memory
 const storage = multer.memoryStorage();
 
-// Kiểm tra loại file
 const fileFilter = (
   req: Request,
   file: Express.Multer.File,
   cb: multer.FileFilterCallback
 ) => {
-  // Chỉ chấp nhận file ảnh
   const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
   
   if (allowedMimes.includes(file.mimetype)) {
@@ -20,23 +17,19 @@ const fileFilter = (
   }
 };
 
-// Cấu hình multer
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // Giới hạn 5MB mỗi file
-    files: 10 // Tối đa 10 files
+    fileSize: 5 * 1024 * 1024,
+    files: 10
   }
 });
 
-// Middleware xử lý upload nhiều ảnh
 export const uploadToolImages = upload.array('images', 10);
 
-// Middleware xử lý upload 1 ảnh
 export const uploadSingleImage = upload.single('image');
 
-// Middleware xử lý lỗi upload
 export const handleUploadError = (error: any, req: Request, res: any, next: any) => {
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
@@ -69,13 +62,11 @@ export const handleUploadError = (error: any, req: Request, res: any, next: any)
   next(error);
 };
 
-// Helper function để validate images
 export const validateImages = (files: Express.Multer.File[] | undefined): { valid: boolean; message?: string } => {
   if (!files || files.length === 0) {
-    return { valid: true }; // Ảnh không bắt buộc
+    return { valid: true }; 
   }
 
-  // Kiểm tra số lượng
   if (files.length > 10) {
     return {
       valid: false,
@@ -83,7 +74,6 @@ export const validateImages = (files: Express.Multer.File[] | undefined): { vali
     };
   }
 
-  // Kiểm tra kích thước từng file
   for (const file of files) {
     if (file.size > 5 * 1024 * 1024) {
       return {
@@ -96,7 +86,6 @@ export const validateImages = (files: Express.Multer.File[] | undefined): { vali
   return { valid: true };
 };
 
-// Helper function để convert file thành buffer data cho database
 export const prepareImageForDB = (file: Express.Multer.File) => {
   return {
     imageData: file.buffer,
