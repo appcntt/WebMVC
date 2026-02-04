@@ -23,14 +23,17 @@ export const accessoryService = {
   },
 
   create: async (data: any) => {
+
+    const images = Array.isArray(data.images) ? data.images : [];
+
     const response = await api.post('/accessory', {
       name: data.name,
       code: data.code,
-      subToolId: data.subTool,
+      subToolId: data.subToolId,
       serialNumber: data.serialNumber,
       model: data.model,
-      parentToolId: data.parentTool,
-      accessoryTypeId: data.accessoryType,
+      parentToolId: data.parentToolId,
+      accessoryTypeId: data.accessoryTypeId,
       assignedTo: data.assignedTo,
       assignedDate: data.assignedDate,
       quantity: data.quantity || 1,
@@ -45,7 +48,8 @@ export const accessoryService = {
       condition: data.condition || 'Tốt',
       notes: data.notes,
       description: data.description,
-      dateOfReceipt: data.dateOfReceipt
+      dateOfReceipt: data.dateOfReceipt,
+      images: images,
     });
     return response.data;
   },
@@ -59,14 +63,15 @@ export const accessoryService = {
       condition: data.condition,
       purchasePrice: data.purchasePrice,
       purchaseDate: data.purchaseDate,
-      warrantyUntil: data.warrantyEndDate,
+      warrantyUntil: data.warrantyUntil,
       notes: data.notes,
       description: data.description,
       quantity: data.quantity,
       specifications: data.specifications,
       slot: data.slot,
       unitOC: data.unitOC,
-      status: data.status
+      status: data.status,
+      images: data.images,
     });
     return response.data;
   },
@@ -116,7 +121,26 @@ export const accessoryService = {
   getFullConfiguration: async (toolId: string) => {
     const response = await api.get(`/accessory/full-config/${toolId}`);
     return response.data;
-  }
+  },
+
+  uploadImages: async (files: File[]) => {
+    const formData = new FormData();
+    files.forEach(file => {
+      formData.append('images', file);
+    });
+
+    const response = await api.post('/accessory/upload-images', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  deleteImage: async (filename: string) => {
+    const response = await api.delete(`/accessory/images/${filename}`);
+    return response.data;
+  },
 };
 
 export default accessoryService;

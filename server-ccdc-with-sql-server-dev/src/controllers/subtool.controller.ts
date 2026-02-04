@@ -7,6 +7,8 @@ import { CategorySubToolModel } from '../models/category-subtool.model';
 import { EmployeeModel } from '../models/employee.model';
 import { AccessoryModel } from '../models/accessory.model';
 import { ToolHistoryModel } from '../models/history.model';
+import path from 'path';
+import fs from 'fs';
 
 interface AuthRequest extends Request {
     employee?: any;
@@ -26,6 +28,65 @@ const removeVietnameseTones = (str: string): string => {
         .replace(/đ/g, 'd')
         .replace(/Đ/g, 'D');
 };
+
+export const uploadImages = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const files = req.files as Express.Multer.File[];
+
+        if (!files || files.length === 0) {
+            res.status(400).json({
+                success: false,
+                message: 'Không có file nào được upload'
+            });
+            return;
+        }
+
+        const imagesUrls = files.map(file => `/uploads/subtools/${file.filename}`);
+
+        res.json({
+            success: true,
+            message: 'Upload ảnh thành công',
+            data: imagesUrls
+        });
+    } catch (error: any) {
+        console.error('Upload images error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi server',
+            error: error.message
+        });
+    }
+}
+
+export const deleteImage = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const { filename } = req.params;
+
+        const filePath = path.join('uploads/subtools', filename);
+
+        if (!fs.existsSync(filePath)) {
+            res.status(404).json({
+                success: false,
+                message: 'Không tìm thấy file'
+            });
+            return;
+        }
+
+        fs.unlinkSync(filePath);
+
+        res.json({
+            success: true,
+            message: 'Xoá ảnh thành công'
+        });
+    } catch (error: any) {
+        console.error('Delete image error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi server',
+            error: error.message
+        });
+    }
+}
 
 export const getAll = async (req: AuthRequest, res: Response) => {
     try {
@@ -212,6 +273,7 @@ export const create = async (req: AuthRequest, res: Response) => {
             model,
             description,
             dateOfReceipt,
+            images
         } = req.body;
 
         const currentEmployee = req.employee!;
@@ -247,7 +309,6 @@ export const create = async (req: AuthRequest, res: Response) => {
         const guidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
         if (!guidRegex.test(parentToolId)) {
-            console.error('Invalid parentToolId:', parentToolId); // ✅ LOG
             return res.status(400).json({
                 success: false,
                 message: `ID thiết bị không hợp lệ: ${parentToolId}`,
@@ -255,7 +316,6 @@ export const create = async (req: AuthRequest, res: Response) => {
         }
 
         if (!guidRegex.test(subToolTypeId)) {
-            console.error('Invalid subToolTypeId:', subToolTypeId); // ✅ LOG
             return res.status(400).json({
                 success: false,
                 message: `ID loại thiết bị không hợp lệ: ${subToolTypeId}. Nhận được: ${typeof subToolTypeId}`,
@@ -320,6 +380,20 @@ export const create = async (req: AuthRequest, res: Response) => {
             }
         }
 
+
+        let processImages: string[] = [];
+        if (images) {
+            if (Array.isArray(images)) {
+                processImages = images.filter(img => img && typeof img === 'string');
+            } else if (typeof images === 'string') {
+                try {
+                    processImages = JSON.parse(images);
+                } catch (error) {
+                    processImages = [images];
+                }
+            }
+        }
+
         const subToolData = {
             name,
             code: finalCode,
@@ -343,6 +417,7 @@ export const create = async (req: AuthRequest, res: Response) => {
             model,
             description,
             dateOfReceipt,
+            images: processImages.length > 0 ? processImages : undefined
         };
 
         const savedSubTool = await SubToolModel.create(subToolData);
@@ -427,6 +502,66 @@ export const update = async (req: AuthRequest, res: Response) => {
         const updateData = { ...req.body };
         delete updateData.code;
         delete updateData.parentTool;
+
+        if (req.body.images !== undefined) {
+            const oldImages = subTool.images || [];
+            let processImages: string[] = [];
+
+            if (req.body.images === null) {
+                for (const oldImg of oldImages) {
+                    const filename = oldImg.split('/').pop();
+                    if (filename) {
+                        const filePath = path.join('uploads/subtools', filename);
+                        if (fs.existsSync(filePath)) {
+                            fs.unlinkSync(filePath);
+                        }
+                    }
+                }
+                updateData.images = [];
+            } else if (Array.isArray(req.body.images)) {
+                processImages = req.body.images.filter((img: any) => img && typeof img === 'string');
+
+                const deletedImages = oldImages.filter(oldImg => !processImages.includes(oldImg));
+
+                for (const deletedImg of deletedImages) {
+                    const filename = deletedImg.split('/').pop();
+                    if (filename) {
+                        const filePath = path.join('uploads/subtools', filename);
+                        if (fs.existsSync(filePath)) {
+                            try {
+                                fs.unlinkSync(filePath);
+                                console.log(`Đã xóa file: ${filePath}`);
+                            } catch (error) {
+                                console.error(`Lỗi khi xóa file ${filePath}:`, error);
+                            }
+                        }
+                    }
+                }
+
+                updateData.images = processImages;
+            } else if (typeof req.body.images === 'string') {
+                try {
+                    processImages = JSON.parse(req.body.images);
+
+                    const deletedImages = oldImages.filter(oldImg => !processImages.includes(oldImg));
+
+                    for (const deletedImg of deletedImages) {
+                        const filename = deletedImg.split('/').pop();
+                        if (filename) {
+                            const filePath = path.join('uploads/subtools', filename);
+                            if (fs.existsSync(filePath)) {
+                                fs.unlinkSync(filePath);
+                            }
+                        }
+                    }
+
+                    updateData.images = processImages;
+                } catch (error) {
+                    processImages = [req.body.images];
+                    updateData.images = processImages;
+                }
+            }
+        }
 
         const updatedSubTool = await SubToolModel.update(req.params.id, updateData);
 
@@ -526,7 +661,6 @@ export const restore = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        // Kiểm tra quyền theo phòng ban
         if (!hasPermission(currentEmployee, ['view_all_tools'])) {
             if (hasPermission(currentEmployee, ['view_department_tools'])) {
                 if (currentEmployee.departmentId !== subTool.departmentId) {
@@ -538,7 +672,6 @@ export const restore = async (req: AuthRequest, res: Response) => {
             }
         }
 
-        // Restore với đồng bộ thông tin Tool cha
         const restoreResult = await SubToolModel.restore(
             req.params.id,
             currentEmployee.id
@@ -551,7 +684,6 @@ export const restore = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        // Lấy thông tin SubTool sau khi restore
         const restoredSubTool = await SubToolModel.findById(req.params.id);
 
         res.json({

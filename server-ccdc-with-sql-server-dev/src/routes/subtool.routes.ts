@@ -2,29 +2,43 @@ import { Router } from 'express';
 import * as subToolController from '../controllers/subtool.controller';
 import { authenticateToken } from '../middlewares/auth';
 import { checkPermission } from '../middlewares/checkPermission';
+import { uploadSubTool, handleUploadError } from '../middlewares/upload';
 
 const router: Router = Router();
 
-// Lấy danh sách sub-tools
+router.post(
+  '/upload-images',
+  authenticateToken,
+  uploadSubTool,
+  subToolController.uploadImages
+);
+
+router.delete(
+  '/images/:filename',
+  authenticateToken,
+  subToolController.deleteImage
+);
+
+
 router.get('/', authenticateToken, subToolController.getAll);
 
-// Lấy sub-tools theo Parent ID
+
 router.get('/parent/:parentId', authenticateToken, subToolController.getByParentTool);
 
-// Tìm kiếm
+
 router.get('/search/:keyword', authenticateToken, subToolController.search);
 
-// Lấy chi tiết theo ID
+
 router.get('/:id', authenticateToken, subToolController.getById);
 
-// Tạo mới
+
 router.post('/', 
     authenticateToken, 
     checkPermission('create_tool'), 
     subToolController.create
 );
 
-// Cập nhật
+
 router.put('/:id', 
     authenticateToken, 
     checkPermission('update_tool'), 
@@ -47,8 +61,9 @@ router.delete('/permanent/:id',
     subToolController.permanentDelete
 );
 
-// Bàn giao (Assign)
+
 router.post('/assign', authenticateToken, subToolController.assign);
+
 router.post(
   '/revoke',
   authenticateToken,

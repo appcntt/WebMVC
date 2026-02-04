@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, Pencil, Trash2, X, Save, Package, UserPlus, UserMinus, Search, ChevronDown, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toolService } from '../services/tool.service';
 import { employeeService } from '../services/employee.service';
@@ -11,8 +11,7 @@ import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { usePermission } from "../hooks/usePermission";
 import { createPortal } from 'react-dom';
-// import { Modal } from '../components/Modal';
-// import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { getImageUrl } from '../utils/imageHelper';
 
 interface ITool {
     id: string;
@@ -58,6 +57,7 @@ interface ITool {
     description?: string;
     isDelete?: boolean;
     isUnderWarranty?: boolean;
+    images?: string[];
 }
 
 const ModalPortal = ({ children }: { children: React.ReactNode }) => {
@@ -96,6 +96,14 @@ export default function Tools() {
     const [selectedTool, setSelectedTool] = useState<ITool | null>(null);
     const [loading, setLoading] = useState(false);
     const [categories, setCategories] = useState<any[]>([]);
+
+    const [existingImageUrls, setExistingImageUrls] = useState<string[]>([]);
+    const [newImagePreviews, setNewImagePreviews] = useState<string[]>([]);
+    const [newImageFiles, setNewImageFiles] = useState<File[]>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [showImageModal, setShowImageModal] = useState(false);
+    const [selectedImageUrl, setSelectedImageUrl] = useState('');
+
     const [toolForm, setToolForm] = useState({
         code: '',
         name: '',
@@ -114,9 +122,6 @@ export default function Tools() {
         unitOC: 'Cái',
         dateOfReceipt: ''
     });
-
-    // const anyModalOpen = showModal || showDetailModal || showAssignModal || showRevokeModal;
-    // useBodyScrollLock(anyModalOpen);
 
     const [employeeModalDropdownOpen, setEmployeeModalDropdownOpen] = useState(false);
     const [employeeModalSearchTerm, setEmployeeModalSearchTerm] = useState('');
@@ -144,6 +149,81 @@ export default function Tools() {
     const conditions = ['Mới', 'Cũ', 'Hỏng'];
 
     const { hasPermission } = usePermission();
+
+    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        const newFiles = Array.from(files);
+        const validFiles = newFiles.filter(file => {
+            const isImage = file.type.startsWith('image/');
+            const isValidSize = file.size <= 5 * 1024 * 1024;
+
+            if (!isImage) {
+                toast.error(`${file.name} không phải là file ảnh`);
+            }
+            if (!isValidSize) {
+                toast.error(`${file.name} vượt quá 5MB`);
+            }
+            return isImage && isValidSize;
+        });
+
+        if (validFiles.length > 0) {
+            setNewImageFiles(prev => {
+                const updated = [...prev, ...validFiles];
+                return updated;
+            });
+
+            const previewPromises = validFiles.map(file => {
+                return new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        resolve(reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                });
+            });
+
+            Promise.all(previewPromises).then(previews => {
+                setNewImagePreviews(prev => {
+                    const updated = [...prev, ...previews];
+                    return updated;
+                });
+            });
+
+            toast.success(`Đã chọn ${validFiles.length} ảnh`);
+        }
+
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
+
+    const removeImage = async (index: number) => {
+        const totalExisting = existingImageUrls.length;
+
+        if (index < totalExisting) {
+            if (window.confirm('Bạn có chắc muốn xóa ảnh này?')) {
+                setExistingImageUrls(prev => prev.filter((_, i) => i !== index));
+                toast.success('Đã đánh dấu xóa ảnh. Nhấn "Lưu" để hoàn tất.');
+            }
+        } else {
+            const newIndex = index - totalExisting;
+            setNewImagePreviews(prev => prev.filter((_, i) => i !== newIndex));
+            setNewImageFiles(prev => prev.filter((_, i) => i !== newIndex));
+            toast.success('Đã xóa ảnh');
+        }
+    };
+
+    const openImageModal = (imageUrl: string) => {
+        setSelectedImageUrl(imageUrl);
+        setShowImageModal(true);
+    }
+
+    const closeImageModal = () => {
+        setShowImageModal(false);
+        setSelectedImageUrl('');
+    }
 
     const openDetailModal = (tool: ITool) => {
         setSelectedToolDetail(tool);
@@ -327,6 +407,14 @@ export default function Tools() {
                 description: tool.description || '',
                 dateOfReceipt: tool.dateOfReceipt ? new Date(tool.dateOfReceipt).toISOString().split('T')[0] : '',
             });
+
+            const images = tool.images || [];
+
+            const processedImages = images.map(img => getImageUrl(img));
+
+            setExistingImageUrls(processedImages);
+            setNewImagePreviews([]);
+            setNewImageFiles([]);
         } else {
             const canViewAllTools = hasPermission(['view_all_tools']);
             const canViewDepartmentTools = hasPermission(['view_department_tools']);
@@ -361,6 +449,10 @@ export default function Tools() {
                 dateOfReceipt: ''
             });
 
+            setExistingImageUrls([]);
+            setNewImagePreviews([]);
+            setNewImageFiles([]);
+
             if (defaultUnitId) {
                 const filtered = departments.filter(
                     dept => dept.unitId?.id === defaultUnitId || dept.unitId === defaultUnitId
@@ -385,6 +477,21 @@ export default function Tools() {
         try {
             setLoading(true);
 
+            let finalImageUrls = [...existingImageUrls];
+
+            if (newImageFiles.length > 0) {
+                try {
+                    const uploadResult = await toolService.uploadImages(newImageFiles);
+                    if (uploadResult.success && uploadResult.data) {
+                        finalImageUrls = [...finalImageUrls, ...uploadResult.data];
+                    }
+                } catch (uploadError: any) {
+                    toast.error(uploadError.response?.data?.message || 'Lỗi khi upload ảnh');
+                    setLoading(false);
+                    return;
+                }
+            }
+
             const submitData = {
                 name: toolForm.name,
                 code: toolForm.code?.trim() || '',
@@ -400,7 +507,8 @@ export default function Tools() {
                 warrantyUntil: toolForm.warrantyUntil || undefined,
                 unitOC: toolForm.unitOC || 'Cái',
                 description: toolForm.description || '',
-                dateOfReceipt: toolForm.dateOfReceipt || undefined
+                dateOfReceipt: toolForm.dateOfReceipt || undefined,
+                images: finalImageUrls,
             };
 
             if (editingTool) {
@@ -998,8 +1106,8 @@ export default function Tools() {
                                                             key={page}
                                                             onClick={() => goToPage(page as number)}
                                                             className={`px-3 py-1 rounded-lg transition-colors ${currentPage === page
-                                                                    ? 'bg-indigo-600 text-white font-semibold'
-                                                                    : 'border border-gray-300 hover:bg-gray-100 text-gray-700'
+                                                                ? 'bg-indigo-600 text-white font-semibold'
+                                                                : 'border border-gray-300 hover:bg-gray-100 text-gray-700'
                                                                 }`}
                                                         >
                                                             {page}
@@ -1360,7 +1468,7 @@ export default function Tools() {
                                     />
                                 </div>
 
-                                <div>
+                                {/* <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
                                         Ghi chú
                                     </label>
@@ -1371,6 +1479,81 @@ export default function Tools() {
                                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                                         placeholder="Ghi chú thêm..."
                                     />
+                                </div> */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Hình ảnh công cụ
+                                    </label>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        onChange={handleImageSelect}
+                                        className="hidden"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-indigo-500 transition-colors text-sm text-gray-600 hover:text-indigo-600 flex items-center justify-center gap-2"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        Thêm hình ảnh (tối đa 5MB/ảnh)
+                                    </button>
+
+                                    {(existingImageUrls.length > 0 || newImagePreviews.length > 0) && (
+                                        <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 gap-3">
+                                            {existingImageUrls.map((url, index) => (
+                                                <div key={`existing-${index}`} className="relative group">
+                                                    <div className="absolute top-1 left-1 bg-green-500 text-white text-[10px] px-1.5 py-0.5 rounded z-10">
+                                                        Đã lưu
+                                                    </div>
+                                                    <img
+                                                        src={url}
+                                                        alt={`Existing ${index + 1}`}
+                                                        className="w-full h-24 object-cover rounded-lg border-2 border-green-200 cursor-pointer hover:opacity-75 transition-opacity"
+                                                        onClick={() => openImageModal(url)}
+                                                        onError={(e) => {
+                                                            console.error('Image load error:', url);
+                                                            e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EError%3C/text%3E%3C/svg%3E';
+                                                        }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeImage(index)}
+                                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+
+                                            {newImagePreviews.map((preview, index) => (
+                                                <div key={`new-${index}`} className="relative group">
+                                                    <div className="absolute top-1 left-1 bg-blue-500 text-white text-[10px] px-1.5 py-0.5 rounded z-10">
+                                                        Chưa lưu
+                                                    </div>
+                                                    <img
+                                                        src={preview}
+                                                        alt={`New ${index + 1}`}
+                                                        className="w-full h-24 object-cover rounded-lg border-2 border-blue-300 cursor-pointer hover:opacity-75 transition-opacity"
+                                                        onClick={() => openImageModal(preview)}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeImage(existingImageUrls.length + index)}
+                                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <div className="mt-2 text-xs text-gray-500">
+                                        Ảnh cũ: {existingImageUrls.length} | Ảnh mới: {newImagePreviews.length}
+                                    </div>
                                 </div>
                             </div>
 
@@ -1458,12 +1641,6 @@ export default function Tools() {
                                             📋 Thông tin cơ bản
                                         </h4>
                                         <div className="space-y-2 text-sm">
-                                            {/* <div className="flex justify-between">
-                                            <span className="text-gray-600">Thương hiệu:</span>
-                                            <span className="font-medium text-gray-900">
-                                                {selectedToolDetail.brand || '-'}
-                                            </span>
-                                        </div> */}
                                             <div className="flex justify-between">
                                                 <span className="text-gray-600">Số lượng:</span>
                                                 <span className="font-medium text-gray-900">
@@ -1476,12 +1653,6 @@ export default function Tools() {
                                                     {selectedToolDetail.condition}
                                                 </span>
                                             </div>
-                                            {/* <div className="flex justify-between">
-                                            <span className="text-gray-600">Serial Number:</span>
-                                            <span className="font-medium text-gray-900">
-                                                {selectedToolDetail.serialNumber || '-'}
-                                            </span>
-                                        </div> */}
                                         </div>
                                     </div>
 
@@ -1593,7 +1764,6 @@ export default function Tools() {
                                     </div>
                                 )}
 
-                                {/* Notes */}
                                 {selectedToolDetail.notes && (
                                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                                         <h4 className="text-sm font-semibold text-gray-700 mb-2">
@@ -1612,6 +1782,37 @@ export default function Tools() {
                                         <p className="text-sm text-blue-900 whitespace-pre-wrap">
                                             {selectedToolDetail.description}
                                         </p>
+                                    </div>
+                                )}
+
+                                {selectedToolDetail.images && selectedToolDetail.images.length > 0 && (
+                                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                            🖼️ Hình ảnh
+                                        </h4>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                            {selectedToolDetail.images.map((img, index) => {
+                                                // Xử lý URL ảnh
+                                                const apiURL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+                                                const baseURL = apiURL.replace(/\/api$/, '');
+                                                const imageUrl = img.startsWith('http') ? img : `${baseURL}${img}`;
+
+                                                return (
+                                                    <div key={index} className="relative group">
+                                                        <img
+                                                            src={imageUrl}
+                                                            alt={`Tool image ${index + 1}`}
+                                                            className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-75 transition-opacity"
+                                                            onClick={() => openImageModal(imageUrl)}
+                                                            onError={(e) => {
+                                                                console.error('Image load error:', imageUrl);
+                                                                e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3ELỗi ảnh%3C/text%3E%3C/svg%3E';
+                                                            }}
+                                                        />
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
                                 )}
 
@@ -1672,6 +1873,30 @@ export default function Tools() {
                                     </button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </ModalPortal>
+            )}
+
+            {showImageModal && (
+                <ModalPortal>
+                    <div
+                        className="fixed inset-0 backdrop-blur-sm bg-black/80 flex items-center justify-center p-4 z-[10000]"
+                        onClick={closeImageModal}
+                    >
+                        <div className="relative max-w-4xl max-h-[90vh] w-full">
+                            <button
+                                onClick={closeImageModal}
+                                className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+                            >
+                                <X className="w-8 h-8" />
+                            </button>
+                            <img
+                                src={selectedImageUrl}
+                                alt="Preview"
+                                className="w-full h-full object-contain rounded-lg"
+                                onClick={(e) => e.stopPropagation()}
+                            />
                         </div>
                     </div>
                 </ModalPortal>

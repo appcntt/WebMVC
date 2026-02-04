@@ -25,6 +25,7 @@ export interface ITool {
   description?: string;
   restoredAt?: Date;
   restoredBy?: string;
+  images?: string[];
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -66,6 +67,7 @@ export class ToolModel {
           dateOfReceipt DATETIME NULL,
           notes NVARCHAR(MAX) NULL,
           warrantyUntil DATETIME NULL,
+          images NVARCHAR(MAX) NULL,
           isDelete BIT DEFAULT 0,
           deletedAt DATETIME NULL,
           deletedBy UNIQUEIDENTIFIER NULL,
@@ -87,7 +89,14 @@ export class ToolModel {
         CREATE INDEX idx_tools_status ON Tools(status);
         CREATE INDEX idx_tools_isDelete ON Tools(isDelete);
       END
-
+      ELSE
+      BEGIN
+        -- Thêm cột images nếu bảng đã tồn tại nhưng chưa có cột này
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tools') AND name = 'images')
+        BEGIN
+          ALTER TABLE Tools ADD images NVARCHAR(MAX) NULL;
+        END
+      END
       -- Batch-safe Trigger creation
       IF NOT EXISTS (SELECT * FROM sys.triggers WHERE name = 'trg_Tools_UpdatedAt')
       BEGIN
@@ -329,20 +338,26 @@ export class ToolModel {
     return result.recordset.map(row => this.mapToolWithRelations(row));
   }
 
+  
+  //create
   static async create(tool: ITool): Promise<IToolWithRelations> {
     const pool = getPool();
+
+    const imagesJson = tool.images && tool.images.length > 0
+      ? JSON.stringify(tool.images)
+      : null;
 
     const query = `
       INSERT INTO Tools (
         name, code, assignedTo, assignedDate, unitId, departmentId, categoryId,
         unitOC, quantity, status, condition, purchasePrice, purchaseDate, 
-        dateOfReceipt, notes, warrantyUntil, description
+        dateOfReceipt, notes, warrantyUntil, description, images
       )
       OUTPUT INSERTED.id
       VALUES (
         @name, @code, @assignedTo, @assignedDate, @unitId, @departmentId, @categoryId,
         @unitOC, @quantity, @status, @condition, @purchasePrice, @purchaseDate,
-        @dateOfReceipt, @notes, @warrantyUntil, @description
+        @dateOfReceipt, @notes, @warrantyUntil, @description, @images
       )
     `;
 
@@ -364,6 +379,7 @@ export class ToolModel {
       .input('notes', sql.NVarChar, tool.notes)
       .input('warrantyUntil', sql.DateTime, tool.warrantyUntil)
       .input('description', sql.NVarChar, tool.description)
+      .input('images', sql.NVarChar, imagesJson)
       .query(query);
 
     const insertedId = result.recordset[0].id;
@@ -378,14 +394,20 @@ export class ToolModel {
     const allowedFields = [
       'name', 'assignedTo', 'assignedDate', 'unitId', 'departmentId', 'categoryId',
       'unitOC', 'quantity', 'status', 'condition', 'purchasePrice', 'purchaseDate',
-      'dateOfReceipt', 'notes', 'warrantyUntil', 'description'
+      'dateOfReceipt', 'notes', 'warrantyUntil', 'description', 'images'
     ];
 
     allowedFields.forEach(field => {
       if (toolData[field as keyof ITool] !== undefined) {
         const value = toolData[field as keyof ITool];
 
-        if (['unitId', 'departmentId', 'categoryId', 'assignedTo'].includes(field)) {
+        if (field === 'images') {
+          const imagesJson = value && Array.isArray(value) && value.length > 0
+            ? JSON.stringify(value)
+            : null;
+          updates.push('images = @images');
+          request.input('images', sql.NVarChar, imagesJson);
+        } else if (['unitId', 'departmentId', 'categoryId', 'assignedTo'].includes(field)) {
           updates.push(`${field} = @${field}`);
           request.input(field, sql.UniqueIdentifier, value);
         } else if (['purchaseDate', 'dateOfReceipt', 'warrantyUntil', 'assignedDate'].includes(field)) {
@@ -521,6 +543,7 @@ export class ToolModel {
         sub.restoredBy,
         sub.createdAt,
         sub.updatedAt,
+        sub.images,
         sub.type,
         sub.typeLabel,
         e.name as assignedTo_name, 
@@ -706,6 +729,16 @@ export class ToolModel {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
     };
+
+    if (row.images) {
+      try {
+        tool.images = JSON.parse(row.images);
+      } catch (error) {
+        tool.images = [];
+      }
+    } else {
+      tool.images = [];
+    }
 
     if (row.assignedTo_name) {
       tool.assignedToInfo = {

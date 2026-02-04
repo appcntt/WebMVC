@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Plus, Pencil, Trash2, X, Save, Package, ArrowLeft, Monitor, Keyboard, Mouse, Speaker, UserPlus, ArrowRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Save, Package, Eye, ArrowLeft, Monitor, Keyboard, Mouse, Speaker, UserPlus, ArrowRight } from 'lucide-react';
 import { subToolService } from '../services/subtool.service';
 import { toolService } from '../services/tool.service';
 import { categorySubToolService, type ICategorySubTool } from '../services/category-subtool.service';
@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import { usePermission } from "../hooks/usePermission";
 import type { ISubTool, ITool, IEmployee } from '../types/subtool.types';
 import { createPortal } from 'react-dom';
+import { getImageUrl } from '@/utils/imageHelper';
 
 const ModalPortal = ({ children }: { children: React.ReactNode }) => {
     return createPortal(children, document.body);
@@ -29,6 +30,16 @@ export default function SubToolManagement() {
     const [showTransferModal, setShowTransferModal] = useState<boolean>(false);
     const [editingSubTool, setEditingSubTool] = useState<ISubTool | null>(null);
     const [selectedSubTool, setSelectedSubTool] = useState<ISubTool | null>(null);
+
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [selectedSubToolDetail, setSelectedSubToolDetail] = useState<ISubTool | null>(null);
+
+    const [existingImageUrls, setExistingImageUrls] = useState<string[]>([]);
+    const [newImagePreviews, setNewImagePreviews] = useState<string[]>([]);
+    const [newImageFiles, setNewImageFiles] = useState<File[]>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [showImageModal, setShowImageModal] = useState(false);
+    const [selectedImageUrl, setSelectedImageUrl] = useState('');
 
     const [subToolForm, setSubToolForm] = useState({
         code: '',
@@ -77,10 +88,6 @@ export default function SubToolManagement() {
     const canEdit = hasPermission(['update_tool']);
     const canDelete = hasPermission(['delete_tool']);
 
-    // const getCategoryId = (category: string | { id: string; name: string } | undefined, fallbackId?: string): string | undefined => {
-    //     if (!category) return fallbackId;
-    //     return typeof category === 'object' ? category.id : category;
-    // };
 
     useEffect(() => {
         if (toolId) {
@@ -96,6 +103,104 @@ export default function SubToolManagement() {
             setAvailableTools([]);
         }
     }, [transferForm.employeeId]);
+
+    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        const newFiles = Array.from(files);
+        const validFiles = newFiles.filter(file => {
+            const isImage = file.type.startsWith('image/');
+            const isValidSize = file.size <= 5 * 1024 * 1024;
+
+            if (!isImage) {
+                toast.error(`${file.name} không phải là file ảnh`);
+            }
+            if (!isValidSize) {
+                toast.error(`${file.name} vượt quá 5MB`);
+            }
+            return isImage && isValidSize;
+        });
+
+        if (validFiles.length > 0) {
+            setNewImageFiles(prev => {
+                const updated = [...prev, ...validFiles];
+                return updated;
+            });
+
+            const previewPromises = validFiles.map(file => {
+                return new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        resolve(reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                });
+            });
+
+            Promise.all(previewPromises).then(previews => {
+                setNewImagePreviews(prev => {
+                    const updated = [...prev, ...previews];
+                    return updated;
+                });
+            });
+            toast.success(`Đã chọn ${validFiles.length} ảnh`);
+        }
+
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
+
+    const removeImage = async (index: number) => {
+        const totalExisting = existingImageUrls.length;
+
+        if (index < totalExisting) {
+            const imageUrl = existingImageUrls[index];
+
+            const filename = imageUrl.split('/').pop();
+
+            if (filename && window.confirm('Bạn có chắc muốn xóa ảnh này?')) {
+                try {
+                    await subToolService.deleteImage(filename);
+
+                    setExistingImageUrls(prev => prev.filter((_, i) => i !== index));
+
+                    toast.success('Đã xóa ảnh');
+                } catch (error: any) {
+                    console.error('Delete image error:', error);
+                    toast.error(error?.response?.data?.message || 'Không thể xóa ảnh');
+                }
+            }
+        }
+        else {
+            const newIndex = index - totalExisting;
+            setNewImagePreviews(prev => prev.filter((_, i) => i !== newIndex));
+            setNewImageFiles(prev => prev.filter((_, i) => i !== newIndex));
+
+            toast.success('Đã xóa ảnh');
+        }
+    };
+
+    const openImageModal = (imageUrl: string) => {
+        setSelectedImageUrl(imageUrl);
+        setShowImageModal(true);
+    }
+
+    const closeImageModal = () => {
+        setShowImageModal(false);
+        setSelectedImageUrl('');
+    }
+
+    const openDetailModal = (subtool: ISubTool) => {
+        setSelectedSubToolDetail(subtool);
+        setShowDetailModal(true);
+    };
+
+    const closeDetailModal = () => {
+        setShowDetailModal(false);
+        setSelectedSubToolDetail(null);
+    };
 
     const loadData = async () => {
         if (!toolId) return;
@@ -215,6 +320,14 @@ export default function SubToolManagement() {
                     switchType: subTool.specifications?.switchType || ''
                 }
             });
+
+            const images = subTool.images || [];
+
+            const processImages = images.map(img => getImageUrl(img));
+
+            setExistingImageUrls(processImages);
+            setNewImagePreviews([]);
+            setNewImageFiles([]);
         } else {
             setEditingSubTool(null);
             setSelectedCategoryName('');
@@ -244,6 +357,11 @@ export default function SubToolManagement() {
                     switchType: ''
                 }
             });
+
+
+            setExistingImageUrls([]);
+            setNewImagePreviews([]);
+            setNewImageFiles([]);
         }
         setShowModal(true);
     };
@@ -281,6 +399,21 @@ export default function SubToolManagement() {
         try {
             setLoading(true);
 
+            let finalImageUrls = [...existingImageUrls];
+
+            if (newImageFiles.length > 0) {
+                try {
+                    const uploadResult = await subToolService.uploadImages(newImageFiles);
+                    if (uploadResult.success && uploadResult.data) {
+                        finalImageUrls = [...finalImageUrls, ...uploadResult.data];
+                    }
+                } catch (uploadError: any) {
+                    toast.error(uploadError.response?.data?.message || 'Lỗi khi upload ảnh');
+                    setLoading(false);
+                    return;
+                }
+            }
+
             const data: any = {
                 name: subToolForm.name,
                 parentToolId: toolId,
@@ -296,7 +429,8 @@ export default function SubToolManagement() {
                 status: subToolForm.status || 'Đang sử dụng',
                 condition: subToolForm.condition || 'Mới',
                 notes: subToolForm.notes || undefined,
-                unitOC: subToolForm.unitOC || 'Cái'
+                unitOC: subToolForm.unitOC || 'Cái',
+                images: finalImageUrls,
             };
 
             Object.keys(data).forEach((key: string) => {
@@ -555,6 +689,13 @@ export default function SubToolManagement() {
                                         >
                                             Xem linh kiện
                                         </button>
+                                        <button
+                                            onClick={() => openDetailModal(subTool)}
+                                            className="px-4 py-2 bg-green-50 text-blue-600 rounded-lg hover:bg-green-100 transition-colors"
+                                            title="Xem chi tiết"
+                                        >
+                                            <Eye className="w-3.5 h-3.5" />
+                                        </button>
                                         {canEdit && (
                                             <>
                                                 <button
@@ -810,7 +951,7 @@ export default function SubToolManagement() {
                                                         specifications: { ...subToolForm.specifications, refreshRate: e.target.value }
                                                     })}
                                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                                                /> 
+                                                />
                                             </div>
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-2">Loại tấm nền</label>
@@ -860,6 +1001,82 @@ export default function SubToolManagement() {
                                     />
                                 </div>
 
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Hình ảnh công cụ
+                                    </label>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        onChange={handleImageSelect}
+                                        className="hidden"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-indigo-500 transition-colors text-sm text-gray-600 hover:text-indigo-600 flex items-center justify-center gap-2"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        Thêm hình ảnh (tối đa 5MB/ảnh)
+                                    </button>
+
+                                    {(existingImageUrls.length > 0 || newImagePreviews.length > 0) && (
+                                        <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 gap-3">
+                                            {existingImageUrls.map((url, index) => (
+                                                <div key={`existing-${index}`} className="relative group">
+                                                    <div className="absolute top-1 left-1 bg-green-500 text-white text-[10px] px-1.5 py-0.5 rounded z-10">
+                                                        Đã lưu
+                                                    </div>
+                                                    <img
+                                                        src={url}
+                                                        alt={`Existing ${index + 1}`}
+                                                        className="w-full h-24 object-cover rounded-lg border-2 border-green-200 cursor-pointer hover:opacity-75 transition-opacity"
+                                                        onClick={() => openImageModal(url)}
+                                                        onError={(e) => {
+                                                            console.error('Image load error:', url);
+                                                            e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EError%3C/text%3E%3C/svg%3E';
+                                                        }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeImage(index)}
+                                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+
+                                            {newImagePreviews.map((preview, index) => (
+                                                <div key={`new-${index}`} className="relative group">
+                                                    <div className="absolute top-1 left-1 bg-blue-500 text-white text-[10px] px-1.5 py-0.5 rounded z-10">
+                                                        Chưa lưu
+                                                    </div>
+                                                    <img
+                                                        src={preview}
+                                                        alt={`New ${index + 1}`}
+                                                        className="w-full h-24 object-cover rounded-lg border-2 border-blue-300 cursor-pointer hover:opacity-75 transition-opacity"
+                                                        onClick={() => openImageModal(preview)}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeImage(existingImageUrls.length + index)}
+                                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <div className="mt-2 text-xs text-gray-500">
+                                        Ảnh cũ: {existingImageUrls.length} | Ảnh mới: {newImagePreviews.length}
+                                    </div>
+                                </div>
+
                                 <div className="flex gap-3 pt-4">
                                     <button
                                         type="button"
@@ -879,6 +1096,388 @@ export default function SubToolManagement() {
                                     </button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </ModalPortal>
+            )}
+
+
+            {showDetailModal && selectedSubToolDetail && (
+                <ModalPortal>
+                    <div className="fixed inset-0 backdrop-blur-sm bg-black/30 flex items-center justify-center p-4 z-[9998] ttransition-all duration-300 animate-fadeIn">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-y-auto transform transition-all duration-300 scale-95 animate-slideUp">
+                            <div className="sticky top-0 z-10 bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-6 py-4 rounded-t-2xl">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-white/20 p-2 rounded-lg">
+                                            {(() => {
+                                                const typeName = typeof selectedSubToolDetail.subToolType === 'object'
+                                                    ? selectedSubToolDetail.subToolType.name
+                                                    : selectedSubToolDetail.subToolTypeInfo?.name || '';
+                                                const Icon = getIconByType(typeName);
+                                                return <Icon className="w-6 h-6" />;
+                                            })()}
+                                        </div>
+                                        <div>
+                                            <h2 className="text-xl font-bold">Chi tiết bộ phận thiết bị</h2>
+                                            <p className="text-indigo-100 text-sm">
+                                                {typeof selectedSubToolDetail.subToolType === 'object'
+                                                    ? selectedSubToolDetail.subToolType.name
+                                                    : selectedSubToolDetail.subToolTypeInfo?.name}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={closeDetailModal}
+                                        className="text-white/80 hover:text-white transition-colors p-1 hover:bg-white/10 rounded-lg"
+                                    >
+                                        <X className="w-6 h-6" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="p-6 space-y-6">
+                                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border-2 border-indigo-200 p-6 rounded-xl">
+                                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                                        <div className="flex-1">
+                                            <div className="flex flex-wrap items-center gap-2 mb-3">
+                                                {selectedSubToolDetail.code && (
+                                                    <span className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-sm font-semibold">
+                                                        {selectedSubToolDetail.code}
+                                                    </span>
+                                                )}
+                                                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(selectedSubToolDetail.status)}`}>
+                                                    {selectedSubToolDetail.status}
+                                                </span>
+                                            </div>
+                                            <h3 className="text-2xl font-bold text-indigo-900 mb-2">
+                                                {selectedSubToolDetail.name}
+                                            </h3>
+                                            <div className="flex flex-wrap gap-2 text-sm text-indigo-700">
+                                                {selectedSubToolDetail.brand && (
+                                                    <span className="bg-white/60 px-2 py-1 rounded">
+                                                        {selectedSubToolDetail.brand}
+                                                    </span>
+                                                )}
+                                                {selectedSubToolDetail.model && (
+                                                    <span className="bg-white/60 px-2 py-1 rounded">
+                                                        {selectedSubToolDetail.model}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {selectedSubToolDetail.purchasePrice && (
+                                            <div className="text-left sm:text-right">
+                                                <p className="text-xs text-indigo-600 mb-1">Giá trị</p>
+                                                <p className="text-2xl font-bold text-indigo-700">
+                                                    {selectedSubToolDetail.purchasePrice.toLocaleString('vi-VN')} đ
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* Basic Info */}
+                                    <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                                        <h4 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2">
+                                            📋 Thông tin cơ bản
+                                        </h4>
+                                        <div className="space-y-3">
+                                            {selectedSubToolDetail.serialNumber && (
+                                                <div className="flex justify-between items-start">
+                                                    <span className="text-sm text-gray-600">Serial Number:</span>
+                                                    <span className="text-sm font-medium text-gray-900 font-mono">
+                                                        {selectedSubToolDetail.serialNumber}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-sm text-gray-600">Số lượng:</span>
+                                                <span className="text-sm font-medium text-gray-900">
+                                                    {selectedSubToolDetail.quantity || 1} {selectedSubToolDetail.unitOC || 'Cái'}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-sm text-gray-600">Tình trạng:</span>
+                                                <span className={`text-sm font-semibold ${getConditionColor(selectedSubToolDetail.condition)}`}>
+                                                    {selectedSubToolDetail.condition}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-sm text-gray-600">Thuộc thiết bị:</span>
+                                                <span className="text-sm font-medium text-indigo-600">
+                                                    {parentTool?.name}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                                        <h4 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2">
+                                            📅 Thông tin thời gian
+                                        </h4>
+                                        <div className="space-y-3">
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-sm text-gray-600">Ngày mua:</span>
+                                                <span className="text-sm font-medium text-gray-900">
+                                                    {selectedSubToolDetail.purchaseDate
+                                                        ? new Date(selectedSubToolDetail.purchaseDate).toLocaleDateString('vi-VN')
+                                                        : '-'}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-sm text-gray-600">Bảo hành đến:</span>
+                                                <span className="text-sm font-medium text-gray-900">
+                                                    {selectedSubToolDetail.warrantyUntil
+                                                        ? new Date(selectedSubToolDetail.warrantyUntil).toLocaleDateString('vi-VN')
+                                                        : '-'}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-sm text-gray-600">Còn bảo hành:</span>
+                                                <span className="text-sm font-medium">
+                                                    {selectedSubToolDetail.warrantyUntil && new Date(selectedSubToolDetail.warrantyUntil) > new Date()
+                                                        ? <span className="text-green-600 flex items-center gap-1">
+                                                            <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                                                            Còn hạn
+                                                        </span>
+                                                        : <span className="text-red-600 flex items-center gap-1">
+                                                            <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                                                            Hết hạn
+                                                        </span>
+                                                    }
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {selectedSubToolDetail.specifications && Object.values(selectedSubToolDetail.specifications).some(v => v) && (
+                                    <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                                        <h4 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2">
+                                            ⚙️ Thông số kỹ thuật
+                                        </h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                            {selectedSubToolDetail.specifications.screenSize && (
+                                                <div className="bg-gray-50 p-3 rounded-lg">
+                                                    <p className="text-xs text-gray-600 mb-1">Kích thước</p>
+                                                    <p className="text-sm font-semibold text-gray-900">{selectedSubToolDetail.specifications.screenSize}</p>
+                                                </div>
+                                            )}
+                                            {selectedSubToolDetail.specifications.resolution && (
+                                                <div className="bg-gray-50 p-3 rounded-lg">
+                                                    <p className="text-xs text-gray-600 mb-1">Độ phân giải</p>
+                                                    <p className="text-sm font-semibold text-gray-900">{selectedSubToolDetail.specifications.resolution}</p>
+                                                </div>
+                                            )}
+                                            {selectedSubToolDetail.specifications.refreshRate && (
+                                                <div className="bg-gray-50 p-3 rounded-lg">
+                                                    <p className="text-xs text-gray-600 mb-1">Tần số quét</p>
+                                                    <p className="text-sm font-semibold text-gray-900">{selectedSubToolDetail.specifications.refreshRate}</p>
+                                                </div>
+                                            )}
+                                            {selectedSubToolDetail.specifications.panelType && (
+                                                <div className="bg-gray-50 p-3 rounded-lg">
+                                                    <p className="text-xs text-gray-600 mb-1">Loại tấm nền</p>
+                                                    <p className="text-sm font-semibold text-gray-900">{selectedSubToolDetail.specifications.panelType}</p>
+                                                </div>
+                                            )}
+                                            {selectedSubToolDetail.specifications.connectionType && (
+                                                <div className="bg-gray-50 p-3 rounded-lg">
+                                                    <p className="text-xs text-gray-600 mb-1">Kết nối</p>
+                                                    <p className="text-sm font-semibold text-gray-900">{selectedSubToolDetail.specifications.connectionType}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Assigned User */}
+                                {selectedSubToolDetail.assignedTo ? (
+                                    <div className="bg-green-50 border-2 border-green-200 rounded-xl p-5 shadow-sm">
+                                        <h4 className="text-base font-semibold text-green-900 mb-4 flex items-center gap-2 border-b border-green-200 pb-2">
+                                            👤 Người sử dụng hiện tại
+                                        </h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                            <div>
+                                                <span className="text-xs text-green-700">Tên nhân viên:</span>
+                                                <p className="text-sm font-semibold text-green-900 mt-1">
+                                                    {typeof selectedSubToolDetail.assignedTo === 'object'
+                                                        ? selectedSubToolDetail.assignedTo.name
+                                                        : selectedSubToolDetail.assignedToInfo?.name}
+                                                </p>
+                                            </div>
+                                            {selectedSubToolDetail.assignedToInfo?.code && (
+                                                <div>
+                                                    <span className="text-xs text-green-700">Mã nhân viên:</span>
+                                                    <p className="text-sm font-semibold text-green-900 mt-1">
+                                                        {selectedSubToolDetail.assignedToInfo.code}
+                                                    </p>
+                                                </div>
+                                            )}
+                                            {(typeof selectedSubToolDetail.assignedTo === 'object' && selectedSubToolDetail.assignedTo.positionInfo) && (
+                                                <div>
+                                                    <span className="text-xs text-green-700">Chức vụ:</span>
+                                                    <p className="text-sm font-semibold text-green-900 mt-1">
+                                                        {typeof selectedSubToolDetail.assignedTo.positionInfo === 'object'
+                                                            ? selectedSubToolDetail.assignedTo.positionInfo?.name
+                                                            : '-'}
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-center">
+                                        <p className="text-sm text-gray-500">
+                                            Bộ phận này chưa được giao cho nhân viên nào
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Accessories Count */}
+                                {(selectedSubToolDetail.accessorysCount ?? 0) > 0 && (
+                                    <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-4 shadow-sm">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="bg-purple-500 text-white p-2 rounded-lg">
+                                                    <Package className="w-5 h-5" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-semibold text-purple-900">
+                                                        Linh kiện đi kèm
+                                                    </p>
+                                                    <p className="text-xs text-purple-700">
+                                                        Bộ phận này có {selectedSubToolDetail.accessorysCount} linh kiện
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    if (selectedSubToolDetail.id && toolId) {
+                                                        navigate(`/subtool/${selectedSubToolDetail.id}/${toolId}/accessories`);
+                                                    }
+                                                }}
+                                                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                                            >
+                                                Xem chi tiết
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {selectedSubToolDetail.images && selectedSubToolDetail.images.length > 0 && (
+                                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                            🖼️ Hình ảnh
+                                        </h4>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                            {selectedSubToolDetail.images.map((img, index) => {
+                                                // Xử lý URL ảnh
+                                                const apiURL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+                                                const baseURL = apiURL.replace(/\/api$/, '');
+                                                const imageUrl = img.startsWith('http') ? img : `${baseURL}${img}`;
+
+                                                return (
+                                                    <div key={index} className="relative group">
+                                                        <img
+                                                            src={imageUrl}
+                                                            alt={`SubTool image ${index + 1}`}
+                                                            className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-75 transition-opacity"
+                                                            onClick={() => openImageModal(imageUrl)}
+                                                            onError={(e) => {
+                                                                console.error('Image load error:', imageUrl);
+                                                                e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3ELỗi ảnh%3C/text%3E%3C/svg%3E';
+                                                            }}
+                                                        />
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {selectedSubToolDetail.notes && (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 shadow-sm">
+                                        <h4 className="text-base font-semibold text-amber-900 mb-3 flex items-center gap-2">
+                                            📝 Ghi chú
+                                        </h4>
+                                        <p className="text-sm text-amber-900 whitespace-pre-wrap leading-relaxed">
+                                            {selectedSubToolDetail.notes}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Actions */}
+                                <div className="flex flex-wrap gap-3 pt-4 border-t">
+                                    {canEdit && (
+                                        <>
+                                            <button
+                                                onClick={() => {
+                                                    closeDetailModal();
+                                                    openTransferModal(selectedSubToolDetail);
+                                                }}
+                                                className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium shadow-sm"
+                                            >
+                                                <UserPlus className="w-4 h-4" />
+                                                Chuyển giao
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    closeDetailModal();
+                                                    openModal(selectedSubToolDetail);
+                                                }}
+                                                className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow-sm"
+                                            >
+                                                <Pencil className="w-4 h-4" />
+                                                Chỉnh sửa
+                                            </button>
+                                        </>
+                                    )}
+                                    {/* <button
+                                        onClick={() => {
+                                            if (selectedSubToolDetail.id && toolId) {
+                                                navigate(`/subtool/${selectedSubToolDetail.id}/${toolId}/accessories`);
+                                            }
+                                        }}
+                                        className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium shadow-sm"
+                                    >
+                                        <Package className="w-4 h-4" />
+                                        Quản lý linh kiện
+                                    </button> */}
+                                    <button
+                                        onClick={closeDetailModal}
+                                        className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium shadow-sm ml-auto"
+                                    >
+                                        Đóng
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </ModalPortal>
+            )}
+
+            {showImageModal && (
+                <ModalPortal>
+                    <div
+                        className="fixed inset-0 backdrop-blur-sm bg-black/80 flex items-center justify-center p-4 z-[10000]"
+                        onClick={closeImageModal}
+                    >
+                        <div className="relative max-w-4xl max-h-[90vh] w-full">
+                            <button
+                                onClick={closeImageModal}
+                                className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+                            >
+                                <X className="w-8 h-8" />
+                            </button>
+                            <img
+                                src={selectedImageUrl}
+                                alt="Preview"
+                                className="w-full h-full object-contain rounded-lg"
+                                onClick={(e) => e.stopPropagation()}
+                            />
                         </div>
                     </div>
                 </ModalPortal>

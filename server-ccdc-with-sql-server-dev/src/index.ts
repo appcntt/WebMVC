@@ -1,6 +1,7 @@
 import express from 'express';
 import { connectDB } from './config/database';
 import cors from 'cors';
+import path from 'path';
 import employeeRoutes from './routes/employee.routes';
 import unitRoutes from './routes/unit.routes';
 import departmentRoutes from './routes/deparment.routes';
@@ -24,11 +25,16 @@ import { CategoryAccessory } from './models/category-accessory.model';
 import subtoolRoutes from './routes/subtool.routes';
 import historyRoutes from './routes/history.routes';
 import authRoutes from './routes/auth.routes';
+import multer from 'multer';
+import {UploadModel} from './models/image.model';
 
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/employees', employeeRoutes);
@@ -43,6 +49,35 @@ app.use('/api/accessory', accessoryRoutes);
 app.use('/api/sub-tool', subtoolRoutes);
 app.use('/api/historys', historyRoutes);
 
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        message: 'File quá lớn. Kích thước tối đa là 5MB'
+      });
+    }
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({
+        success: false,
+        message: 'Quá nhiều file. Tối đa 10 files'
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      message: err.message
+    });
+  }
+  
+  if (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Lỗi server'
+    });
+  }
+  
+  next();
+});
 
 
 const PORT = process.env.PORT;
@@ -63,6 +98,7 @@ async function initializeTables(): Promise<void> {
     await SubToolModel.createTable();
     await AccessoryModel.createTable();
     await ToolHistoryModel.createTable();
+    await UploadModel.createTable();
     
     console.log('✓ All tables initialized successfully');
   } catch (error) {

@@ -1,98 +1,112 @@
 import multer from 'multer';
-import { Request } from 'express';
+import path from 'path';
+import fs from 'fs';
 
-const storage = multer.memoryStorage();
+const removeVietnameseTones = (str: string): string => {
+  str = str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  str = str.replace(/đ/g, 'd').replace(/Đ/g, 'D');
+  return str;
+};
 
-const fileFilter = (
-  req: Request,
-  file: Express.Multer.File,
-  cb: multer.FileFilterCallback
-) => {
-  const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-  
-  if (allowedMimes.includes(file.mimetype)) {
-    cb(null, true);
+const slugifyFilename = (filename: string): string => {
+  const ext = path.extname(filename);
+  const nameWithoutExt = path.basename(filename, ext);
+
+  let slug = removeVietnameseTones(nameWithoutExt);
+  slug = slug.toLowerCase();
+  slug = slug.replace(/[^a-z0-9]/g, '-');
+  slug = slug.replace(/-+/g, '-');
+  slug = slug.replace(/^-|-$/g, '');
+
+  return slug + ext;
+};
+
+const createStorage = (folderName: string, keepOriginalName: boolean = false) => {
+  return multer.diskStorage({
+    destination: (req, file, cb) => {
+      const uploadDir = `uploads/${folderName}`;
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      if (keepOriginalName) {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        const nameWithoutExt = path.basename(file.originalname, ext);
+        const finalFilename = `${nameWithoutExt}${ext}`;
+        cb(null, finalFilename);
+      } else {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const safeFilename = slugifyFilename(file.originalname);
+        const nameWithoutExt = path.basename(safeFilename, path.extname(safeFilename));
+        const ext = path.extname(safeFilename);
+        const maxLength = 50;
+        const truncatedName = nameWithoutExt.length > maxLength
+          ? nameWithoutExt.substring(0, maxLength)
+          : nameWithoutExt;
+        const finalFilename = `${truncatedName}-${uniqueSuffix}${ext}`;
+        cb(null, finalFilename);
+      }
+    }
+  });
+};
+
+const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp/;
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = allowedTypes.test(file.mimetype);
+
+  if (mimetype && extname) {
+    return cb(null, true);
   } else {
-    cb(new Error('Chỉ chấp nhận file ảnh (JPEG, PNG, GIF, WEBP)'));
+    cb(new Error('Chỉ chấp nhận file ảnh (jpeg, jpg, png, gif, webp)'));
   }
 };
 
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024,
-    files: 10
-  }
-});
+const createUploader = (folderName: string, maxFiles: number = 10, keepOriginalName: boolean = false) => {
+  return multer({
+    storage: createStorage(folderName, keepOriginalName),
+    limits: {
+      fileSize: 5 * 1024 * 1024
+    },
+    fileFilter: fileFilter
+  }).array('images', maxFiles);
+};
 
-export const uploadToolImages = upload.array('images', 10);
+export const uploadTool = createUploader('tools', 10, true);
+export const uploadSubTool = createUploader('subtools', 10, true);
+export const uploadAccessory = createUploader('accessories', 10, true);
+export const uploadEmployee = createUploader('employees', 1, true);
+export const uploadCategory = createUploader('categories', 1, true);
 
-export const uploadSingleImage = upload.single('image');
 
-export const handleUploadError = (error: any, req: Request, res: any, next: any) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
+export const handleUploadError = (err: any, req: any, res: any, next: any) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
         success: false,
-        message: 'Kích thước file vượt quá giới hạn 5MB'
+        message: 'File quá lớn. Kích thước tối đa là 5MB'
       });
     }
-    if (error.code === 'LIMIT_FILE_COUNT') {
+    if (err.code === 'LIMIT_FILE_COUNT') {
       return res.status(400).json({
         success: false,
-        message: 'Số lượng file vượt quá giới hạn 10 files'
+        message: 'Vượt quá số lượng file cho phép'
       });
     }
-    if (error.code === 'LIMIT_UNEXPECTED_FILE') {
-      return res.status(400).json({
-        success: false,
-        message: 'Tên trường file không đúng'
-      });
-    }
-  }
-  
-  if (error.message) {
     return res.status(400).json({
       success: false,
-      message: error.message
+      message: `Lỗi upload: ${err.message}`
+    });
+  } else if (err) {
+    return res.status(400).json({
+      success: false,
+      message: err.message
     });
   }
-
-  next(error);
+  next();
 };
 
-export const validateImages = (files: Express.Multer.File[] | undefined): { valid: boolean; message?: string } => {
-  if (!files || files.length === 0) {
-    return { valid: true }; 
-  }
-
-  if (files.length > 10) {
-    return {
-      valid: false,
-      message: 'Tối đa 10 ảnh'
-    };
-  }
-
-  for (const file of files) {
-    if (file.size > 5 * 1024 * 1024) {
-      return {
-        valid: false,
-        message: `File ${file.originalname} vượt quá 5MB`
-      };
-    }
-  }
-
-  return { valid: true };
-};
-
-export const prepareImageForDB = (file: Express.Multer.File) => {
-  return {
-    imageData: file.buffer,
-    imageName: file.originalname,
-    imageType: file.mimetype,
-    imageSize: file.size
-  };
-};
-
-export default upload;
+export { multer, createUploader };

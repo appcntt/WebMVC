@@ -62,7 +62,26 @@ export const subToolService = {
   revoke: async (data: any) => {
     const response = await api.post('/sub-tool/revoke', data);
     return response.data;
-  }
+  },
+
+  uploadImages: async (files: File[]) => {
+    const formData = new FormData();
+    files.forEach(file => {
+      formData.append('images', file);
+    });
+
+    const response = await api.post('/sub-tool/upload-images', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  deleteImage: async (filename: string) => {
+    const response = await api.delete(`/sub-tool/images/${filename}`);
+    return response.data;
+  },
 };
 
 export default subToolService;

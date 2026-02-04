@@ -41,6 +41,7 @@ export interface ISubTool {
   isDelete?: boolean;
   deletedAt?: Date;
   deletedBy?: string;
+  images?: string[];
   restoredAt?: Date;
   restoredBy?: string;
   createdAt?: Date;
@@ -100,6 +101,7 @@ export class SubToolModel {
           isDelete BIT DEFAULT 0,
           deletedAt DATETIME NULL,
           deletedBy UNIQUEIDENTIFIER NULL,
+          images NVARCHAR(MAX) NULL,
           restoredAt DATETIME NULL,
           restoredBy UNIQUEIDENTIFIER NULL,
           createdAt DATETIME DEFAULT GETDATE(),
@@ -123,7 +125,14 @@ export class SubToolModel {
         CREATE INDEX idx_subtools_assignedTo ON SubTools(assignedTo);
         CREATE INDEX idx_subtools_isDelete ON SubTools(isDelete);
       END
-
+      ELSE
+      BEGIN
+        -- Thêm cột images nếu bảng đã tồn tại nhưng chưa có cột này
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SubTools') AND name = 'images')
+        BEGIN
+          ALTER TABLE SubTools ADD images NVARCHAR(MAX) NULL;
+        END
+      END
       -- Use EXEC to isolate the TRIGGER creation from the batch
       IF NOT EXISTS (SELECT * FROM sys.triggers WHERE name = 'trg_SubTools_UpdatedAt')
       BEGIN
@@ -352,6 +361,9 @@ export class SubToolModel {
     return result.recordset.map(row => this.mapSubToolWithRelations(row));
   }
 
+  
+  
+  //create
   static async create(subTool: ISubTool): Promise<ISubToolWithRelations> {
     const pool = getPool();
 
@@ -375,17 +387,21 @@ export class SubToolModel {
 
     const specificationsJson = subTool.specifications ? JSON.stringify(subTool.specifications) : null;
 
+    const imagesJson = subTool.images && subTool.images.length > 0
+      ? JSON.stringify(subTool.images)
+      : null;
+
     const query = `
       INSERT INTO SubTools (
         code, name, brand, model, serialNumber, unitOC, parentTool, subToolTypeId, categoryId,
         unitId, departmentId, quantity, specifications, purchaseDate, purchasePrice, dateOfReceipt,
-        warrantyUntil, status, condition, assignedTo, assignedDate, notes, description, hasAccessorys
+        warrantyUntil, status, condition, assignedTo, assignedDate, notes, description, hasAccessorys, images
       )
       OUTPUT INSERTED.id
       VALUES (
         @code, @name, @brand, @model, @serialNumber, @unitOC, @parentTool, @subToolTypeId, @categoryId,
         @unitId, @departmentId, @quantity, @specifications, @purchaseDate, @purchasePrice, @dateOfReceipt,
-        @warrantyUntil, @status, @condition, @assignedTo, @assignedDate, @notes, @description, @hasAccessorys
+        @warrantyUntil, @status, @condition, @assignedTo, @assignedDate, @notes, @description, @hasAccessorys, @images
       )
     `;
 
@@ -413,7 +429,8 @@ export class SubToolModel {
       .input('assignedDate', sql.Date, subTool.assignedDate || null)
       .input('notes', sql.NVarChar, subTool.notes || null)
       .input('description', sql.NVarChar, subTool.description || null)
-      .input('hasAccessorys', sql.Bit, subTool.hasAccessorys ? 1 : 0);
+      .input('hasAccessorys', sql.Bit, subTool.hasAccessorys ? 1 : 0)
+      .input('images', sql.NVarChar, imagesJson);
 
     const result = await request.query(query);
 
@@ -421,6 +438,8 @@ export class SubToolModel {
     return this.findById(insertedId) as Promise<ISubToolWithRelations>;
   }
 
+
+  //update
   static async update(id: string, subToolData: Partial<ISubTool>): Promise<ISubToolWithRelations | null> {
     const pool = getPool();
     const updates: string[] = [];
@@ -430,14 +449,19 @@ export class SubToolModel {
       'name', 'brand', 'model', 'serialNumber', 'unitOC', 'quantity', 'specifications',
       'purchaseDate', 'purchasePrice', 'dateOfReceipt', 'warrantyUntil', 'status',
       'condition', 'assignedTo', 'assignedDate', 'notes', 'description', 'hasAccessorys',
-      'unitId', 'departmentId', 'categoryId', 'parentTool'
+      'unitId', 'departmentId', 'categoryId', 'parentTool', 'images'
     ];
 
     allowedFields.forEach(field => {
       if (subToolData[field as keyof ISubTool] !== undefined) {
         const value = subToolData[field as keyof ISubTool];
-
-        if (field === 'specifications') {
+        if (field === 'images') {
+          const imagesJson = value && Array.isArray(value) && value.length > 0
+           ? JSON.stringify(value)
+           : null
+          updates.push('images = @images');
+          request.input('images', sql.NVarChar, imagesJson);
+        } else if (field === 'specifications') {
           updates.push('specifications = @specifications');
           request.input('specifications', sql.NVarChar(sql.MAX), JSON.stringify(value));
         } else if (field === 'hasAccessorys') {
@@ -476,6 +500,7 @@ export class SubToolModel {
     return this.findById(id);
   }
 
+  //soft delete
   static async softDelete(id: string, deletedBy: string): Promise<boolean> {
     const pool = getPool();
     const query = `
@@ -492,6 +517,7 @@ export class SubToolModel {
     return result.rowsAffected[0] > 0;
   }
 
+  //lấy subtool theo tool
   static async getParentToolInfo(subToolId: string): Promise<any> {
     const pool = getPool();
     const query = `
@@ -512,6 +538,8 @@ export class SubToolModel {
     return result.recordset[0];
   }
 
+
+  //restore
   static async restore(id: string, restoredBy: string): Promise<{
     success: boolean;
     message: string;
@@ -520,7 +548,6 @@ export class SubToolModel {
     const pool = getPool();
 
     try {
-      // Lấy thông tin SubTool trước khi restore
       const subToolInfo = await this.findById(id, true);
 
       if (!subToolInfo || !subToolInfo.isDelete) {
@@ -530,12 +557,9 @@ export class SubToolModel {
         };
       }
 
-      // Lấy thông tin Tool cha hiện tại
       const parentInfo = await this.getParentToolInfo(id);
 
       if (!parentInfo) {
-        // Trường hợp Tool cha bị xóa hoặc không tồn tại
-        // Chỉ restore SubTool mà không cập nhật thông tin chuyển giao
         const query = `
                 UPDATE SubTools 
                 SET 
@@ -559,7 +583,6 @@ export class SubToolModel {
         };
       }
 
-      // Trường hợp bình thường - đồng bộ với Tool cha
       const query = `
             UPDATE SubTools 
             SET 
@@ -596,6 +619,7 @@ export class SubToolModel {
     }
   }
 
+  //delete
   static async hardDelete(id: string): Promise<boolean> {
     const pool = getPool();
     const query = `DELETE FROM SubTools WHERE id = @id`;
@@ -607,6 +631,7 @@ export class SubToolModel {
     return result.rowsAffected[0] > 0;
   }
 
+  //tìm theo tool
   static async findByParentTool(parentToolId: string): Promise<ISubToolWithRelations[]> {
     const pool = getPool();
     const query = `
@@ -633,6 +658,7 @@ export class SubToolModel {
     return result.recordset.map(row => this.mapSubToolWithRelations(row));
   }
 
+  // count
   static async countDocuments(filters: any): Promise<number> {
     const pool = getPool();
     const whereClauses: string[] = [];
@@ -654,6 +680,7 @@ export class SubToolModel {
     const result = await request.query(query);
     return result.recordset[0].total;
   }
+
 
   static async assignToEmployee(
     parentToolId: string,
@@ -788,6 +815,7 @@ export class SubToolModel {
     return result.rowsAffected[0];
   }
 
+  // lấy danh sách đã xoá
   static async getDeleted(params: {
     departmentId?: string;
     employeeId?: string;
@@ -850,6 +878,7 @@ export class SubToolModel {
         sub.updatedAt,
         sub.type,
         sub.typeLabel,
+        sub.images,
         e.name as assignedTo_name, 
         e.email as assignedTo_email, 
         e.code as assignedTo_code,
@@ -938,6 +967,16 @@ export class SubToolModel {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
     };
+
+    if (row.images) {
+      try {
+        subTool.images = JSON.parse(row.images);
+      } catch (error) {
+        subTool.images = [];
+      }
+    } else {
+      subTool.images = [];
+    }
 
     if (row.parentTool_name) {
       subTool.parentToolInfo = {

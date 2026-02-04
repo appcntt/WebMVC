@@ -7,6 +7,8 @@ import { ToolModel } from '../models/tool.model';
 import { EmployeeModel } from '../models/employee.model';
 import { CategoryAccessory } from '../models/category-accessory.model';
 import { ToolHistoryModel } from '../models/history.model';
+import path from 'path';
+import fs from 'fs';
 
 interface AuthRequest extends Request {
   employee?: any;
@@ -26,11 +28,6 @@ const hasPermission = (employee: any, permissions: string[]): boolean => {
 
   const userPermissions = employee.positionInfo?.permissions || [];
 
-  console.log('🔐 Checking permissions:', {
-    required: permissions,
-    userHas: userPermissions
-  });
-
   return permissions.some(permission => userPermissions.includes(permission));
 };
 
@@ -46,6 +43,65 @@ async function generateAccessoryCode(categoryName: string): Promise<string> {
   const normalizedName = removeVietnameseTones(categoryName || 'ACCESSORY');
   const code = normalizedName.replace(/\s+/g, '').toUpperCase();
   return code || 'ACCESSORY';
+}
+
+export const uploadImages = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const files = req.files as Express.Multer.File[];
+
+    if (!files || files.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: 'Không có file nào được upload'
+      });
+      return;
+    }
+
+    const imagesUrls = files.map(file => `/uploads/accessories/${file.filename}`);
+
+    res.json({
+      success: true,
+      message: 'Upload ảnh thành công',
+      data: imagesUrls
+    });
+  } catch (error: any) {
+    console.error('Upload images error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi server',
+      error: error.message
+    });
+  }
+}
+
+export const deleteImage = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { filename } = req.params;
+
+    const filePath = path.join('uploads/accessories', filename);
+
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy file'
+      });
+      return;
+    }
+
+    fs.unlinkSync(filePath);
+
+    res.json({
+      success: true,
+      message: 'Xoá ảnh thành công'
+    });
+  } catch (error: any) {
+    console.error('Delete image error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi server',
+      error: error.message
+    });
+  }
 }
 
 export const getAll = async (req: AuthRequest, res: Response) => {
@@ -260,7 +316,8 @@ export const create = async (req: AuthRequest, res: Response) => {
       condition,
       notes,
       description,
-      dateOfReceipt
+      dateOfReceipt,
+      images
     } = req.body;
 
     const currentEmployee = req.employee!;
@@ -376,6 +433,22 @@ export const create = async (req: AuthRequest, res: Response) => {
       code = `${code}_${timestamp}`;
     }
 
+    let processImages: string[] = [];
+    if (images) {
+      if (Array.isArray(images)) {
+        processImages = images.filter(img => img && typeof img === 'string');
+      } else if (typeof images === 'string') {
+        try {
+          const parsed = JSON.parse(images);
+          processImages = Array.isArray(parsed) ? parsed : [images];
+        } catch (error) {
+          processImages = [images];
+        }
+      }
+    }
+
+    console.log('✅ Processed images:', processImages);
+
     const accessoryData: IAccessory = {
       name,
       code,
@@ -401,17 +474,12 @@ export const create = async (req: AuthRequest, res: Response) => {
       condition: condition || 'Tốt',
       notes: notes || null,
       description: description || null,
-      dateOfReceipt: dateOfReceipt || null
+      dateOfReceipt: dateOfReceipt || null,
+      images: processImages.length > 0 ? processImages : []
     };
-
-    console.log('Final accessory data to create:', JSON.stringify({
-      ...accessoryData,
-      specifications: '...'
-    }, null, 2));
 
     const savedAccessory = await AccessoryModel.create(accessoryData);
 
-    // Update SubTool hasAccessorys flag
     await SubToolModel.update(subToolId, { hasAccessorys: true });
 
     res.status(201).json({
@@ -471,6 +539,66 @@ export const update = async (req: AuthRequest, res: Response) => {
     delete updateData.code;
     delete updateData.subTool;
     delete updateData.parentTool;
+
+    if (req.body.images !== undefined) {
+      const oldImages = accessory.images || [];
+      let processImages: string[] = [];
+
+      if (req.body.images === null) {
+        for (const oldImg of oldImages) {
+          const filename = oldImg.split('/').pop();
+          if (filename) {
+            const filePath = path.join('uploads/accessories', filename);
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+            }
+          }
+        }
+        updateData.images = [];
+      } else if (Array.isArray(req.body.images)) {
+        processImages = req.body.images.filter((img: any) => img && typeof img === 'string');
+
+        const deletedImages = oldImages.filter(oldImg => !processImages.includes(oldImg));
+
+        for (const deletedImg of deletedImages) {
+          const filename = deletedImg.split('/').pop();
+          if (filename) {
+            const filePath = path.join('uploads/accessories', filename);
+            if (fs.existsSync(filePath)) {
+              try {
+                fs.unlinkSync(filePath);
+                console.log(`Đã xóa file: ${filePath}`);
+              } catch (error) {
+                console.error(`Lỗi khi xóa file ${filePath}:`, error);
+              }
+            }
+          }
+        }
+
+        updateData.images = processImages;
+      } else if (typeof req.body.images === 'string') {
+        try {
+          processImages = JSON.parse(req.body.images);
+
+          const deletedImages = oldImages.filter(oldImg => !processImages.includes(oldImg));
+
+          for (const deletedImg of deletedImages) {
+            const filename = deletedImg.split('/').pop();
+            if (filename) {
+              const filePath = path.join('uploads/accessories', filename);
+              if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+              }
+            }
+          }
+
+          updateData.images = processImages;
+        } catch (error) {
+          processImages = [req.body.images];
+          updateData.images = processImages;
+        }
+      }
+    }
 
     const updatedAccessory = await AccessoryModel.update(req.params.id, updateData);
 
@@ -1123,5 +1251,7 @@ export default {
   permanentDelete,
   assign,
   revoke,
-  getFullConfiguration
+  getFullConfiguration,
+  uploadImages,
+  deleteImage
 };

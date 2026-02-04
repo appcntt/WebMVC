@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Search, Edit2, Trash2, Eye, PackageCheck, AlertCircle, TrendingUp, ArrowLeft, UserPlus, UserMinus, X, ArrowRight } from 'lucide-react';
 import { accessoryService } from '../services/accessory.service';
 import { subToolService } from '../services/subtool.service';
@@ -8,6 +8,8 @@ import { employeeService } from '../services/employee.service';
 import { useNavigate, useParams } from 'react-router-dom';
 import { categoryAccessoryService } from '../services/category-accessory.service';
 import toast from "react-hot-toast";
+import { getImageUrl } from '@/utils/imageHelper';
+import { createPortal } from 'react-dom';
 
 const AccessoryManagement = () => {
     const [accessories, setAccessories] = useState<any[]>([]);
@@ -22,6 +24,12 @@ const AccessoryManagement = () => {
         accessoryType: '',
         status: ''
     });
+
+    const ModalPortal = ({ children }: { children: React.ReactNode }) => {
+        return createPortal(children, document.body);
+    };
+
+
     const [showModal, setShowModal] = useState(false);
     const [showTransferModal, setShowTransferModal] = useState(false);
     const [showRevokeModal, setShowRevokeModal] = useState(false);
@@ -29,7 +37,15 @@ const AccessoryManagement = () => {
     const [selectedAccessory, setSelectedAccessory] = useState<any>(null);
     const [availableSubTools, setAvailableSubTools] = useState<any[]>([]);
     const [loadingSubTools, setLoadingSubTools] = useState(false);
-    const [parentToolId, setParentToolId] = useState('');
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [selectedAccessoryDetail, setSelectedAccessoryDetail] = useState<any | null>(null);
+
+    const [existingImageUrls, setExistingImageUrls] = useState<string[]>([]);
+    const [newImagePreviews, setNewImagePreviews] = useState<string[]>([]);
+    const [newImageFiles, setNewImageFiles] = useState<File[]>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [showImageModal, setShowImageModal] = useState(false);
+    const [selectedImageUrl, setSelectedImageUrl] = useState('');
 
     const [formData, setFormData] = useState({
         name: '',
@@ -40,7 +56,7 @@ const AccessoryManagement = () => {
         condition: 'Mới',
         purchasePrice: '',
         purchaseDate: '',
-        warrantyEndDate: '',
+        warrantyUntil: '',
         notes: '',
         parentTool: '',
         code: '',
@@ -48,7 +64,7 @@ const AccessoryManagement = () => {
         unitOC: 'Cái',
         specifications: {},
         slot: '',
-        status: 'Đang sử dụng'
+        status: 'Đang sử dụng',
     });
 
     const [categoryAccessoryTypes, setCategoryAccessoryTypes] = useState<any[]>([]);
@@ -70,6 +86,94 @@ const AccessoryManagement = () => {
     const statusOptions = ['Khả dụng', 'Đang sử dụng', 'Bảo trì', 'Hỏng', 'Đã nâng cấp', 'Thanh lý'];
     const conditionOptions = ['Mới', 'Cũ', 'Hỏng'];
 
+    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        const newFiles = Array.from(files);
+        const validFiles = newFiles.filter(file => {
+            const isImage = file.type.startsWith('image/');
+            const isValidSize = file.size <= 5 * 1024 * 1024;
+
+            if (!isImage) {
+                toast.error(`${file.name} không phải là file ảnh`);
+            }
+            if (!isValidSize) {
+                toast.error(`${file.name} vượt quá 5MB`);
+            }
+            return isImage && isValidSize;
+        });
+
+        if (validFiles.length > 0) {
+            setNewImageFiles(prev => {
+                const updated = [...prev, ...validFiles];
+                return updated;
+            });
+
+            const previewPromises = validFiles.map(file => {
+                return new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        resolve(reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                });
+            });
+
+            Promise.all(previewPromises).then(previews => {
+                setNewImagePreviews(prev => {
+                    const updated = [...prev, ...previews];
+                    return updated;
+                });
+            });
+            toast.success(`Đã chọn ${validFiles.length} ảnh`);
+        }
+
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
+
+    const removeImage = async (index: number) => {
+        const totalExisting = existingImageUrls.length;
+
+        if (index < totalExisting) {
+            const imageUrl = existingImageUrls[index];
+
+            const filename = imageUrl.split('/').pop();
+
+            if (filename && window.confirm('Bạn có chắc muốn xóa ảnh này?')) {
+                try {
+                    await accessoryService.deleteImage(filename);
+
+                    setExistingImageUrls(prev => prev.filter((_, i) => i !== index));
+
+                    toast.success('Đã xóa ảnh');
+                } catch (error: any) {
+                    console.error('Delete image error:', error);
+                    toast.error(error?.response?.data?.message || 'Không thể xóa ảnh');
+                }
+            }
+        }
+        else {
+            const newIndex = index - totalExisting;
+            setNewImagePreviews(prev => prev.filter((_, i) => i !== newIndex));
+            setNewImageFiles(prev => prev.filter((_, i) => i !== newIndex));
+
+            toast.success('Đã xóa ảnh');
+        }
+    };
+
+    const openImageModal = (imageUrl: string) => {
+        setSelectedImageUrl(imageUrl);
+        setShowImageModal(true);
+    }
+
+    const closeImageModal = () => {
+        setShowImageModal(false);
+        setSelectedImageUrl('');
+    }
+
     const loadAccessoriesBySubTool = useCallback(async () => {
         try {
             setLoading(true);
@@ -81,10 +185,6 @@ const AccessoryManagement = () => {
             const response = await accessoryService.getBySubTool(subToolId);
             setAccessories(response.data || []);
             setSubToolInfo(response.subTool);
-
-            if (response.data && response.data.length > 0) {
-                setParentToolId(response.data[0].parentToolInfo?.id || '');
-            }
         } catch (error: any) {
             console.error('Load accessories error:', error);
             toast.error('Không thể tải danh sách linh kiện');
@@ -96,9 +196,7 @@ const AccessoryManagement = () => {
     const loadCategoryAccessoryTypes = useCallback(async () => {
         try {
             const response = await categoryAccessoryService.getAll();
-            const categories = response || [];
-
-            setCategoryAccessoryTypes(categories);
+            setCategoryAccessoryTypes(response || []);
         } catch (error) {
             console.error('Load category accessory types error:', error);
         }
@@ -113,11 +211,15 @@ const AccessoryManagement = () => {
         }
     }, []);
 
-    useEffect(() => {
-        if (toolId) {
-            setParentToolId(toolId);
-        }
-    }, [toolId]);
+    const openDetailModal = (accessory: any) => {
+        setSelectedAccessoryDetail(accessory);
+        setShowDetailModal(true);
+    };
+
+    const closeDetailModal = () => {
+        setShowDetailModal(false);
+        setSelectedAccessoryDetail(null);
+    };
 
     useEffect(() => {
         loadAccessoriesBySubTool();
@@ -145,7 +247,6 @@ const AccessoryManagement = () => {
 
             const employeeTools = toolsResponse.data || [];
 
-
             if (employeeTools.length === 0) {
                 console.log('⚠️ Nhân viên chưa có Tool nào');
                 setAvailableSubTools([]);
@@ -154,20 +255,17 @@ const AccessoryManagement = () => {
 
             const subToolPromises = employeeTools.map((tool: any) => {
                 const toolId = tool._id || tool.id;
-                console.log('📝 Fetching subtools for tool:', toolId, tool.name);
                 return subToolService.getByParentTool(toolId);
             });
 
             const subToolResponses = await Promise.all(subToolPromises);
             const allSubTools = subToolResponses.flatMap(res => res.data || []);
 
-
             const compatibleSubTools = allSubTools.filter((subTool: any) => {
                 const typeName = subTool.subToolTypeInfo?.name || '';
                 const compatibleTypes = ['Thùng máy tính', 'Thùng CPU', 'Case'];
                 return compatibleTypes.includes(typeName);
             });
-
 
             setAvailableSubTools(compatibleSubTools);
         } catch (error) {
@@ -209,17 +307,23 @@ const AccessoryManagement = () => {
             condition: 'Mới',
             purchasePrice: '',
             purchaseDate: '',
-            warrantyEndDate: '',
+            warrantyUntil: '',
             notes: '',
-            parentTool: parentToolId,
+            parentTool: toolId || '',
             code: '',
             quantity: 1,
             unitOC: 'Cái',
             specifications: {},
             slot: '',
-            status: 'Đang sử dụng'
+            status: 'Đang sử dụng',
         });
+
+        setExistingImageUrls([]);
+        setNewImagePreviews([]);
+        setNewImageFiles([]);
+
         setShowModal(true);
+
     };
 
     const handleEdit = (accessory: any) => {
@@ -227,23 +331,37 @@ const AccessoryManagement = () => {
         setSelectedAccessory(accessory);
         setFormData({
             name: accessory.name || '',
-            accessoryType: accessory.accessoryTypeInfo?.id || '',
+            accessoryType: accessory.accessoryTypeInfo?._id || '',
             brand: accessory.brand || '',
             model: accessory.model || '',
             serialNumber: accessory.serialNumber || '',
             condition: accessory.condition || 'Mới',
             purchasePrice: accessory.purchasePrice || '',
             purchaseDate: accessory.purchaseDate ? new Date(accessory.purchaseDate).toISOString().split('T')[0] : '',
-            warrantyEndDate: accessory.warrantyUntil ? new Date(accessory.warrantyUntil).toISOString().split('T')[0] : '',
+            warrantyUntil: accessory.warrantyUntil ? new Date(accessory.warrantyUntil).toISOString().split('T')[0] : '',
             notes: accessory.notes || '',
             code: accessory.code || '',
             quantity: accessory.quantity || 1,
             specifications: accessory.specifications || {},
             slot: accessory.slot || '',
-            parentTool: parentToolId,
+            parentTool: toolId || '',
             unitOC: accessory.unitOC || 'Cái',
-            status: accessory.status || 'Đang sử dụng'
+            status: accessory.status || 'Đang sử dụng',
         });
+
+        console.log('📸 Raw images from accessory:', accessory.images);
+
+        const images = accessory.images || [];
+        const processedImages = Array.isArray(images)
+            ? images.map((img: string) => getImageUrl(img))
+            : [];
+
+        console.log('📸 Processed images:', processedImages);
+
+        setExistingImageUrls(processedImages);
+        setNewImagePreviews([]);
+        setNewImageFiles([]);
+
         setShowModal(true);
     };
 
@@ -363,7 +481,7 @@ const AccessoryManagement = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!formData.name || !formData.accessoryType || !parentToolId || !subToolId) {
+        if (!formData.name || !formData.accessoryType || !toolId || !subToolId) {
             toast.error('Vui lòng điền đầy đủ thông tin bắt buộc');
             return;
         }
@@ -376,10 +494,29 @@ const AccessoryManagement = () => {
         }
 
         try {
+            setLoading(true);
+
+            let finalImageUrls = [...existingImageUrls];
+
+            if (newImageFiles.length > 0) {
+                try {
+                    const uploadResult = await accessoryService.uploadImages(newImageFiles);
+                    if (uploadResult.success && uploadResult.data) {
+                        finalImageUrls = [...finalImageUrls, ...uploadResult.data];
+                    }
+                } catch (uploadError: any) {
+                    toast.error(uploadError.response?.data?.message || 'Lỗi khi upload ảnh');
+                    setLoading(false);
+                    return;
+                }
+            }
+
+            console.log('📸 Final image URLs:', finalImageUrls);
+
             const dataToSubmit = {
                 name: formData.name,
                 subToolId: subToolId,
-                parentToolId: parentToolId,
+                parentToolId: toolId,
                 accessoryTypeId: formData.accessoryType,
                 code: formData.code || null,
                 serialNumber: formData.serialNumber || null,
@@ -391,29 +528,17 @@ const AccessoryManagement = () => {
                 slot: formData.slot || null,
                 purchaseDate: formData.purchaseDate || null,
                 purchasePrice: formData.purchasePrice ? parseFloat(formData.purchasePrice) : null,
-                warrantyUntil: formData.warrantyEndDate || null,
+                warrantyUntil: formData.warrantyUntil || null,
                 status: formData.status || 'Đang sử dụng',
                 condition: formData.condition || 'Mới',
-                notes: formData.notes || null
+                notes: formData.notes || null,
+                images: finalImageUrls,
             };
 
+            console.log('📤 Submitting data:', dataToSubmit);
+
             if (modalMode === 'create') {
-                const token = localStorage.getItem('accessToken');
-                const response = await fetch('http://localhost:3002/api/accessory', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify(dataToSubmit)
-                }); 
-
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.message || 'Failed to create');
-                }
-
+                await accessoryService.create(dataToSubmit);
                 toast.success('Thêm linh kiện thành công');
             } else {
                 await accessoryService.update(selectedAccessory.id, dataToSubmit);
@@ -425,6 +550,8 @@ const AccessoryManagement = () => {
         } catch (error: any) {
             console.error('❌ Submit error:', error);
             toast.error(error.message || 'Có lỗi xảy ra');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -605,9 +732,6 @@ const AccessoryManagement = () => {
                             ) : (
                                 filteredAccessories.map((accessory) => (
                                     <tr key={accessory.id} className="hover:bg-gray-50">
-                                        {/* <td className="px-4 py-3 text-sm text-gray-900 font-mono">
-                                            {accessory.code || '-'}
-                                        </td> */}
                                         <td className="px-4 py-3">
                                             <div className="text-sm font-medium text-gray-900">{accessory.name}</div>
                                             {accessory.serialNumber && (
@@ -661,6 +785,13 @@ const AccessoryManagement = () => {
                                                     </>
                                                 )}
                                                 <button
+                                                    onClick={() => openDetailModal(accessory)}
+                                                    className="p-1 text-indigo-600 hover:bg-indigo-50 rounded"
+                                                    title="Xem chi tiết"
+                                                >
+                                                    <Eye className="w-4 h-4" />
+                                                </button>
+                                                <button
                                                     onClick={() => handleEdit(accessory)}
                                                     className="p-1 text-blue-600 hover:bg-blue-50 rounded"
                                                     title="Sửa"
@@ -684,7 +815,268 @@ const AccessoryManagement = () => {
                 </div>
             </div>
 
-            {/* Create/Edit Modal */}
+            {showDetailModal && selectedAccessoryDetail && (
+                <div className="fixed inset-0 backdrop-blur-sm bg-black/30 flex items-center justify-center p-4 z-[9999]">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                        {/* Header */}
+                        <div className="sticky top-0 z-10 bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-4 rounded-t-2xl">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <PackageCheck className="w-6 h-6" />
+                                    <div>
+                                        <h2 className="text-xl font-bold">Chi tiết linh kiện</h2>
+                                        <p className="text-purple-100 text-sm">{getAccessoryTypeName(selectedAccessoryDetail)}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={closeDetailModal}
+                                    className="text-white/80 hover:text-white transition-colors p-1 hover:bg-white/10 rounded-lg"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6 space-y-6">
+                            {/* Info Card */}
+                            <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200 p-6 rounded-xl">
+                                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                                    <div className="flex-1">
+                                        <div className="flex flex-wrap items-center gap-2 mb-3">
+                                            {selectedAccessoryDetail.code && (
+                                                <span className="bg-purple-600 text-white px-3 py-1 rounded-lg text-sm font-semibold">
+                                                    {selectedAccessoryDetail.code}
+                                                </span>
+                                            )}
+                                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(selectedAccessoryDetail.status)}`}>
+                                                {selectedAccessoryDetail.status}
+                                            </span>
+                                        </div>
+                                        <h3 className="text-2xl font-bold text-purple-900 mb-2">
+                                            {selectedAccessoryDetail.name}
+                                        </h3>
+                                        <div className="flex flex-wrap gap-2 text-sm text-purple-700">
+                                            {selectedAccessoryDetail.brand && (
+                                                <span className="bg-white/60 px-2 py-1 rounded">
+                                                    {selectedAccessoryDetail.brand}
+                                                </span>
+                                            )}
+                                            {selectedAccessoryDetail.model && (
+                                                <span className="bg-white/60 px-2 py-1 rounded">
+                                                    {selectedAccessoryDetail.model}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {selectedAccessoryDetail.purchasePrice && (
+                                        <div className="text-left sm:text-right">
+                                            <p className="text-xs text-purple-600 mb-1">Giá trị</p>
+                                            <p className="text-2xl font-bold text-purple-700">
+                                                {selectedAccessoryDetail.purchasePrice.toLocaleString('vi-VN')} đ
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Details Grid */}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                {/* Basic Info */}
+                                <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                                    <h4 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2">
+                                        📋 Thông tin cơ bản
+                                    </h4>
+                                    <div className="space-y-3">
+                                        {selectedAccessoryDetail.serialNumber && (
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-sm text-gray-600">Serial Number:</span>
+                                                <span className="text-sm font-medium text-gray-900 font-mono">
+                                                    {selectedAccessoryDetail.serialNumber}
+                                                </span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-sm text-gray-600">Số lượng:</span>
+                                            <span className="text-sm font-medium text-gray-900">
+                                                {selectedAccessoryDetail.quantity || 1} {selectedAccessoryDetail.unitOC || 'Cái'}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-sm text-gray-600">Tình trạng:</span>
+                                            <span className={`text-sm font-semibold ${getConditionColor(selectedAccessoryDetail.condition)}`}>
+                                                {selectedAccessoryDetail.condition}
+                                            </span>
+                                        </div>
+                                        {selectedAccessoryDetail.slot && (
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-sm text-gray-600">Slot:</span>
+                                                <span className="text-sm font-medium text-gray-900">
+                                                    {selectedAccessoryDetail.slot}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Time Info */}
+                                <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                                    <h4 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2">
+                                        📅 Thông tin thời gian
+                                    </h4>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-sm text-gray-600">Ngày mua:</span>
+                                            <span className="text-sm font-medium text-gray-900">
+                                                {selectedAccessoryDetail.purchaseDate
+                                                    ? new Date(selectedAccessoryDetail.purchaseDate).toLocaleDateString('vi-VN')
+                                                    : '-'}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-sm text-gray-600">Bảo hành đến:</span>
+                                            <span className="text-sm font-medium text-gray-900">
+                                                {selectedAccessoryDetail.warrantyUntil
+                                                    ? new Date(selectedAccessoryDetail.warrantyUntil).toLocaleDateString('vi-VN')
+                                                    : '-'}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-sm text-gray-600">Còn bảo hành:</span>
+                                            <span className="text-sm font-medium">
+                                                {selectedAccessoryDetail.warrantyUntil && new Date(selectedAccessoryDetail.warrantyUntil) > new Date()
+                                                    ? <span className="text-green-600 flex items-center gap-1">
+                                                        <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                                                        Còn hạn
+                                                    </span>
+                                                    : <span className="text-red-600 flex items-center gap-1">
+                                                        <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                                                        Hết hạn
+                                                    </span>
+                                                }
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {selectedAccessoryDetail.images && selectedAccessoryDetail.images.length > 0 && (
+                                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                                    <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                        🖼️ Hình ảnh ({selectedAccessoryDetail.images.length})
+                                    </h4>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                        {selectedAccessoryDetail.images.map((img: string, index: number) => {
+                                            const imageUrl = getImageUrl(img);
+
+                                            console.log(`Image ${index}:`, {
+                                                original: img,
+                                                processed: imageUrl
+                                            });
+
+                                            return (
+                                                <div key={index} className="relative group">
+                                                    <img
+                                                        src={imageUrl}
+                                                        alt={`Accessory ${index + 1}`}
+                                                        className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-75 transition-opacity"
+                                                        onClick={() => openImageModal(imageUrl)}
+                                                        onError={(e) => {
+                                                            console.error('❌ Image load error:', imageUrl);
+                                                            e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3ELỗi ảnh%3C/text%3E%3C/svg%3E';
+                                                        }}
+                                                    />
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Notes */}
+                            {selectedAccessoryDetail.notes && (
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 shadow-sm">
+                                    <h4 className="text-base font-semibold text-amber-900 mb-3 flex items-center gap-2">
+                                        📝 Ghi chú
+                                    </h4>
+                                    <p className="text-sm text-amber-900 whitespace-pre-wrap leading-relaxed">
+                                        {selectedAccessoryDetail.notes}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Actions */}
+                            <div className="flex flex-wrap gap-3 pt-4 border-t">
+                                {selectedAccessoryDetail.status === 'Đang sử dụng' && (
+                                    <>
+                                        <button
+                                            onClick={() => {
+                                                closeDetailModal();
+                                                openTransferModal(selectedAccessoryDetail);
+                                            }}
+                                            className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium shadow-sm"
+                                        >
+                                            <UserPlus className="w-4 h-4" />
+                                            Chuyển giao
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                closeDetailModal();
+                                                openRevokeModal(selectedAccessoryDetail);
+                                            }}
+                                            className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium shadow-sm"
+                                        >
+                                            <UserMinus className="w-4 h-4" />
+                                            Thu hồi
+                                        </button>
+                                    </>
+                                )}
+                                <button
+                                    onClick={() => {
+                                        closeDetailModal();
+                                        handleEdit(selectedAccessoryDetail);
+                                    }}
+                                    className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow-sm"
+                                >
+                                    <Edit2 className="w-4 h-4" />
+                                    Chỉnh sửa
+                                </button>
+                                <button
+                                    onClick={closeDetailModal}
+                                    className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium shadow-sm ml-auto"
+                                >
+                                    Đóng
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showImageModal && (
+                <ModalPortal>
+                    <div
+                        className="fixed inset-0 backdrop-blur-sm bg-black/80 flex items-center justify-center p-4 z-[10000]"
+                        onClick={closeImageModal}
+                    >
+                        <div className="relative max-w-4xl max-h-[90vh] w-full">
+                            <button
+                                onClick={closeImageModal}
+                                className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+                            >
+                                <X className="w-8 h-8" />
+                            </button>
+                            <img
+                                src={selectedImageUrl}
+                                alt="Preview"
+                                className="w-full h-full object-contain rounded-lg"
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        </div>
+                    </div>
+                </ModalPortal>
+            )}
+
             {showModal && (
                 <div className="fixed inset-0 backdrop-blur-sm bg-black/30 flex items-center justify-center p-4 z-50">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -818,8 +1210,8 @@ const AccessoryManagement = () => {
                                         <input
                                             type="date"
                                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            value={formData.warrantyEndDate}
-                                            onChange={(e) => setFormData({ ...formData, warrantyEndDate: e.target.value })}
+                                            value={formData.warrantyUntil}
+                                            onChange={(e) => setFormData({ ...formData, warrantyUntil: e.target.value })}
                                         />
                                     </div>
 
@@ -831,6 +1223,82 @@ const AccessoryManagement = () => {
                                             value={formData.notes}
                                             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                                         ></textarea>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Hình ảnh công cụ
+                                    </label>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        onChange={handleImageSelect}
+                                        className="hidden"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-indigo-500 transition-colors text-sm text-gray-600 hover:text-indigo-600 flex items-center justify-center gap-2"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        Thêm hình ảnh (tối đa 5MB/ảnh)
+                                    </button>
+
+                                    {(existingImageUrls.length > 0 || newImagePreviews.length > 0) && (
+                                        <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 gap-3">
+                                            {existingImageUrls.map((url, index) => (
+                                                <div key={`existing-${index}`} className="relative group">
+                                                    <div className="absolute top-1 left-1 bg-green-500 text-white text-[10px] px-1.5 py-0.5 rounded z-10">
+                                                        Đã lưu
+                                                    </div>
+                                                    <img
+                                                        src={url}
+                                                        alt={`Existing ${index + 1}`}
+                                                        className="w-full h-24 object-cover rounded-lg border-2 border-green-200 cursor-pointer hover:opacity-75 transition-opacity"
+                                                        onClick={() => openImageModal(url)}
+                                                        onError={(e) => {
+                                                            console.error('Image load error:', url);
+                                                            e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EError%3C/text%3E%3C/svg%3E';
+                                                        }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeImage(index)}
+                                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+
+                                            {newImagePreviews.map((preview, index) => (
+                                                <div key={`new-${index}`} className="relative group">
+                                                    <div className="absolute top-1 left-1 bg-blue-500 text-white text-[10px] px-1.5 py-0.5 rounded z-10">
+                                                        Chưa lưu
+                                                    </div>
+                                                    <img
+                                                        src={preview}
+                                                        alt={`New ${index + 1}`}
+                                                        className="w-full h-24 object-cover rounded-lg border-2 border-blue-300 cursor-pointer hover:opacity-75 transition-opacity"
+                                                        onClick={() => openImageModal(preview)}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeImage(existingImageUrls.length + index)}
+                                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <div className="mt-2 text-xs text-gray-500">
+                                        Ảnh cũ: {existingImageUrls.length} | Ảnh mới: {newImagePreviews.length}
                                     </div>
                                 </div>
 
@@ -980,7 +1448,6 @@ const AccessoryManagement = () => {
                                 />
                             </div>
 
-                            {/* Actions */}
                             <div className="flex gap-3 pt-4">
                                 <button
                                     type="button"
@@ -1015,7 +1482,6 @@ const AccessoryManagement = () => {
                         </div>
 
                         <div className="p-6 space-y-6">
-                            {/* Component Info */}
                             <div className="bg-orange-50 p-4 rounded-lg">
                                 <h3 className="font-semibold text-orange-900 mb-2">Thông tin Component</h3>
                                 <div className="space-y-1 text-sm">
@@ -1034,7 +1500,6 @@ const AccessoryManagement = () => {
                                 </div>
                             </div>
 
-                            {/* Warning */}
                             <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
                                 <div className="flex">
                                     <div className="flex-shrink-0">
@@ -1050,7 +1515,6 @@ const AccessoryManagement = () => {
                                 </div>
                             </div>
 
-                            {/* Condition */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Tình trạng khi thu hồi
@@ -1066,7 +1530,6 @@ const AccessoryManagement = () => {
                                 </select>
                             </div>
 
-                            {/* Notes */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Ghi chú
@@ -1080,7 +1543,6 @@ const AccessoryManagement = () => {
                                 />
                             </div>
 
-                            {/* Actions */}
                             <div className="flex gap-3 pt-4">
                                 <button
                                     type="button"

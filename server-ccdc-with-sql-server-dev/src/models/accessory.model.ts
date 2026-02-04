@@ -1,4 +1,4 @@
-import sql from 'mssql';
+import sql, { NVarChar } from 'mssql';
 import { getPool } from '../config/database';
 
 export interface IAccessorySpecifications {
@@ -84,6 +84,7 @@ export interface IAccessory {
   restoredBy?: string;
   createdAt?: Date;
   updatedAt?: Date;
+  images?: string[];
 }
 
 export interface IAccessoryWithRelations extends IAccessory {
@@ -117,6 +118,8 @@ export class AccessoryModel {
           departmentId UNIQUEIDENTIFIER NOT NULL,
           assignedTo UNIQUEIDENTIFIER NULL,
           assignedDate DATETIME NULL,
+          model NVARCHAR(50) NULL,
+          serialNumber NVARCHAR(50) NULL,
           quantity INT NULL,
           brand NVARCHAR(100) NULL,
           unitOC NVARCHAR(50) NULL,
@@ -141,6 +144,7 @@ export class AccessoryModel {
           restoredBy UNIQUEIDENTIFIER NULL,
           createdAt DATETIME DEFAULT GETDATE(),
           updatedAt DATETIME DEFAULT GETDATE(),
+          images NVARCHAR(MAX) NULL,
           
           FOREIGN KEY (subTool) REFERENCES SubTools(id),
           FOREIGN KEY (parentTool) REFERENCES Tools(id),
@@ -162,7 +166,14 @@ export class AccessoryModel {
         CREATE INDEX idx_accessories_assignedTo ON Accessories(assignedTo);
         CREATE INDEX idx_accessories_isDelete ON Accessories(isDelete);
       END
-
+      ELSE
+      BEGIN
+        -- Thêm cột images nếu bảng đã tồn tại nhưng chưa có cột này
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Accessories') AND name = 'images')
+        BEGIN
+          ALTER TABLE Accessories ADD images NVARCHAR(MAX) NULL;
+        END
+      END
       IF NOT EXISTS (SELECT * FROM sys.triggers WHERE name = 'trg_Accessories_UpdatedAt')
       BEGIN
         EXEC('
@@ -346,29 +357,40 @@ export class AccessoryModel {
     return result.recordset.map(row => this.mapAccessoryWithRelations(row));
   }
 
+
+  //create
   static async create(accessory: IAccessory): Promise<IAccessoryWithRelations> {
     const pool = getPool();
     const specificationsJson = accessory.specifications ? JSON.stringify(accessory.specifications) : null;
+
+    let imagesJson: string | null = null;
+    if (accessory.images && Array.isArray(accessory.images) && accessory.images.length > 0) {
+      imagesJson = JSON.stringify(accessory.images);
+    }
+
+    console.log('💾 Saving images to DB:', imagesJson);
 
     const query = `
       INSERT INTO Accessories (
         code, name, subTool, parentTool, accessoryTypeId,
         unitId, departmentId, assignedTo, assignedDate, quantity, brand,
         unitOC, specifications, slot, purchaseDate, purchasePrice, warrantyUntil,
-        status, condition, dateOfReceipt, notes, description
+        status, condition, dateOfReceipt, notes, description, model, serialNumber, images
       )
       OUTPUT INSERTED.id
       VALUES (
         @code, @name, @subTool, @parentTool, @accessoryTypeId,
         @unitId, @departmentId, @assignedTo, @assignedDate, @quantity, @brand,
         @unitOC, @specifications, @slot, @purchaseDate, @purchasePrice, @warrantyUntil,
-        @status, @condition, @dateOfReceipt, @notes, @description
+        @status, @condition, @dateOfReceipt, @notes, @description, @model, @serialNumber, @images
       )
     `;
 
     const result = await pool.request()
       .input('code', sql.NVarChar, accessory.code || null)
       .input('name', sql.NVarChar, accessory.name)
+      .input('model', sql.NVarChar, accessory.model)
+      .input('serialNumber', NVarChar, accessory.serialNumber)
       .input('subTool', sql.UniqueIdentifier, accessory.subTool)
       .input('parentTool', sql.UniqueIdentifier, accessory.parentTool)
       .input('accessoryTypeId', sql.UniqueIdentifier, accessory.accessoryTypeId)
@@ -389,6 +411,7 @@ export class AccessoryModel {
       .input('dateOfReceipt', sql.Date, accessory.dateOfReceipt || null)
       .input('notes', sql.NVarChar, accessory.notes || null)
       .input('description', sql.NVarChar, accessory.description || null)
+      .input('images', sql.NVarChar(sql.MAX), imagesJson)
       .query(query);
 
     const insertedId = result.recordset[0].id;
@@ -405,14 +428,20 @@ export class AccessoryModel {
       'purchaseDate', 'purchasePrice', 'warrantyUntil', 'status',
       'condition', 'assignedTo', 'assignedDate', 'notes', 'description',
       'unitId', 'departmentId', 'categoryId', 'unitOC', 'dateOfReceipt',
-      'subTool','parentTool'
+      'subTool', 'parentTool', 'model', 'serialNumber', 'images'
     ];
 
     allowedFields.forEach(field => {
       if (accessoryData[field as keyof IAccessory] !== undefined) {
         const value = accessoryData[field as keyof IAccessory];
 
-        if (field === 'specifications') {
+        if (field === 'images') {
+          const imagesJson = value && Array.isArray(value) && value.length > 0
+            ? JSON.stringify(value)
+            : null
+          updates.push('images = @images');
+          request.input('images', sql.NVarChar, imagesJson);
+        } else if (field === 'specifications') {
           updates.push('specifications = @specifications');
           request.input('specifications', sql.NVarChar(sql.MAX), JSON.stringify(value));
         } else if (['unitId', 'departmentId', 'categoryId', 'assignedTo', 'subTool', 'parentTool'].includes(field)) {
@@ -586,7 +615,6 @@ export class AccessoryModel {
     return result.rowsAffected[0];
   }
 
-  // Sửa method getDeleted trong AccessoryModel
   static async getDeleted(params: {
     departmentId?: string;
     employeeId?: string;
@@ -800,73 +828,6 @@ export class AccessoryModel {
     return result.rowsAffected[0];
   }
 
-  // static async search(params: {
-  //   keyword: string;
-  //   subToolId?: string;
-  //   parentToolId?: string;
-  //   accessoryTypeId?: string;
-  //   status?: string;
-  //   departmentId?: string;
-  //   assignedToId?: string;
-  // }): Promise<IAccessoryWithRelations[]> {
-  //   const pool = getPool();
-  //   const { keyword, subToolId, parentToolId, accessoryTypeId, status, departmentId, assignedToId } = params;
-
-  //   const whereClauses: string[] = [
-  //     'a.isDelete = 0',
-  //     '(a.name LIKE @keyword OR a.code LIKE @keyword OR a.brand LIKE @keyword OR a.notes LIKE @keyword)'
-  //   ];
-  //   const request = pool.request().input('keyword', sql.NVarChar, `%${keyword}%`);
-
-  //   if (subToolId) {
-  //     whereClauses.push('a.subTool = @subToolId');
-  //     request.input('subToolId', sql.UniqueIdentifier, subToolId);
-  //   }
-
-  //   if (parentToolId) {
-  //     whereClauses.push('a.parentTool = @parentToolId');
-  //     request.input('parentToolId', sql.UniqueIdentifier, parentToolId);
-  //   }
-
-  //   if (accessoryTypeId) {
-  //     whereClauses.push('a.accessoryType = @accessoryTypeId');
-  //     request.input('accessoryTypeId', sql.UniqueIdentifier, accessoryTypeId);
-  //   }
-
-  //   if (status) {
-  //     whereClauses.push('a.status = @status');
-  //     request.input('status', sql.NVarChar, status);
-  //   }
-
-  //   if (departmentId) {
-  //     whereClauses.push('a.departmentId = @departmentId');
-  //     request.input('departmentId', sql.UniqueIdentifier, departmentId);
-  //   }
-
-  //   if (assignedToId) {
-  //     whereClauses.push('a.assignedTo = @assignedToId');
-  //     request.input('assignedToId', sql.UniqueIdentifier, assignedToId);
-  //   }
-
-  //   const query = `
-  //     SELECT TOP 50
-  //       a.*,
-  //       st.code as subTool_code, st.name as subTool_name,
-  //       pt.code as parentTool_code, pt.name as parentTool_name,
-  //       cat.name as accessoryType_name,
-  //       e.name as assignedTo_name, e.email as assignedTo_email, e.code as assignedTo_code
-  //     FROM Accessories a
-  //     LEFT JOIN SubTools st ON a.subTool = st.id
-  //     LEFT JOIN Tools pt ON a.parentTool = pt.id
-  //     LEFT JOIN CategoryAccessory cat ON a.accessoryType = cat.id
-  //     LEFT JOIN Employees e ON a.assignedTo = e.id
-  //     WHERE ${whereClauses.join(' AND ')}
-  //   `;
-
-  //   const result = await request.query(query);
-  //   return result.recordset.map(row => this.mapAccessoryWithRelations(row));
-  // }
-
   static async hardDeleteBySubTool(subToolId: string): Promise<number> {
     const pool = getPool();
     const query = `DELETE FROM Accessories WHERE subTool = @subToolId`;
@@ -905,6 +866,8 @@ export class AccessoryModel {
       categoryId: row.categoryId,
       unitId: row.unitId,
       departmentId: row.departmentId,
+      model: row.model,
+      serialNumber: row.serialNumber,
       assignedTo: row.assignedTo,
       assignedDate: row.assignedDate,
       quantity: row.quantity,
@@ -933,7 +896,18 @@ export class AccessoryModel {
       updatedAt: row.updatedAt
     };
 
-    // Add relations
+    if (row.images) {
+      try {
+        const parsedImages = JSON.parse(row.images);
+        accessory.images = Array.isArray(parsedImages) ? parsedImages : [];
+      } catch (error) {
+        console.error('Failed to parse images:', error);
+        accessory.images = [];
+      }
+    } else {
+      accessory.images = [];
+    }
+    
     if (row.subTool_name) {
       accessory.subToolInfo = {
         _id: row.subTool,

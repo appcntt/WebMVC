@@ -95,6 +95,7 @@ export interface ISubTool {
   restoredBy?: string;
   createdAt?: Date | string;
   updatedAt?: Date | string;
+  images?: string[];
 }
 
 export interface ISubToolFormData {

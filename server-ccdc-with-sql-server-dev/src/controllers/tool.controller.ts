@@ -5,8 +5,9 @@ import { CategoryModel } from '../models/category.model';
 import { SubToolModel } from '../models/subtool.model';
 import { AccessoryModel } from '../models/accessory.model';
 import { ToolHistoryModel } from '../models/history.model';
+import path from 'path';
+import fs from 'fs';
 
-// Extend Express Request để thêm employee
 export interface AuthRequest extends Request {
   employee?: any;
   user?: any;
@@ -44,6 +45,64 @@ async function generateToolCode(categoryName: string): Promise<string> {
   return code || 'TOOL';
 }
 
+export const uploadImages = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const files = req.files as Express.Multer.File[];
+
+    if (!files || files.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: 'Không có file nào được upload'
+      });
+      return;
+    }
+
+    const imageUrls = files.map(file => `/uploads/tools/${file.filename}`);
+
+    res.json({
+      success: true,
+      message: 'Upload ảnh thành công',
+      data: imageUrls
+    });
+  } catch (error: any) {
+    console.error('Upload images error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi server',
+      error: error.message
+    });
+  }
+};
+
+export const deleteImage = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { filename } = req.params;
+    const filePath = path.join('uploads/tools', filename);
+
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy file'
+      });
+      return;
+    }
+
+    fs.unlinkSync(filePath);
+
+    res.json({
+      success: true,
+      message: 'Xóa ảnh thành công'
+    });
+  } catch (error: any) {
+    console.error('Delete image error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi server',
+      error: error.message
+    });
+  }
+};
+
 export const getAll = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const {
@@ -72,7 +131,6 @@ export const getAll = async (req: AuthRequest, res: Response): Promise<void> => 
     const filters: any = {};
 
     if (hasPermission(currentEmployee, ['view_all_tools'])) {
-      // View all - không filter gì
     } else if (hasPermission(currentEmployee, ['view_department_tools'])) {
       filters.departmentId = currentEmployee.departmentId;
     } else if (hasPermission(currentEmployee, ['view_assigned_tools'])) {
@@ -171,7 +229,6 @@ export const getById = async (req: AuthRequest, res: Response): Promise<void> =>
       return;
     }
 
-    // Kiểm tra quyền xem
     if (!hasPermission(currentEmployee, ['view_all_tools'])) {
       if (hasPermission(currentEmployee, ['view_department_tools'])) {
         const toolDeptId = tool.departmentId;
@@ -268,7 +325,8 @@ export const create = async (req: AuthRequest, res: Response): Promise<void> => 
       unitOC,
       description,
       dateOfReceipt,
-      assignedDate
+      assignedDate,
+      images
     } = req.body;
 
     const currentEmployee = req.employee;
@@ -323,6 +381,19 @@ export const create = async (req: AuthRequest, res: Response): Promise<void> => 
       code = await generateToolCode(categoryExists.name);
     }
 
+    let procesedImages: string[] = [];
+    if (images) {
+      if (Array.isArray(images)) {
+        procesedImages = images.filter(img => img && typeof img === 'string');
+      } else if (typeof images === 'string') {
+        try {
+          procesedImages = JSON.parse(images);
+        } catch (error) {
+          procesedImages = [images];
+        }
+      }
+    }
+
     const toolData: ITool = {
       name,
       code,
@@ -340,7 +411,8 @@ export const create = async (req: AuthRequest, res: Response): Promise<void> => 
       unitOC,
       notes,
       description,
-      dateOfReceipt
+      dateOfReceipt,
+      images: procesedImages.length > 0 ? procesedImages : undefined
     };
 
     const savedTool = await ToolModel.create(toolData);
@@ -412,6 +484,44 @@ export const update = async (req: AuthRequest, res: Response): Promise<void> => 
 
     const updateData: Partial<ITool> = { ...req.body };
     delete (updateData as any).code;
+
+    let processedImages: string[] = [];
+
+    const oldImages = tool.images || [];
+    if (req.body.images !== undefined) {
+
+
+      if (req.body.images === null) {
+        processedImages = [];
+      } else if (Array.isArray(req.body.images)) {
+        processedImages = req.body.images.filter((img: any) => img && typeof img === 'string');
+      } else if (typeof req.body.images === 'string') {
+        try {
+          processedImages = JSON.parse(req.body.images);
+        } catch (error) {
+          processedImages = [req.body.images];
+        }
+      }
+      updateData.images = processedImages;
+    }
+
+    const deletedImages = oldImages.filter(oldImg => !processedImages.includes(oldImg));
+
+    for (const deletedImg of deletedImages) {
+      try {
+        const filename = deletedImg.split('/').pop();
+        if (filename) {
+          const filePath = path.join('uploads/tools', filename);
+
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`✅ Deleted file: ${filePath}`);
+          }
+        }
+      } catch (error) {
+        console.error(`❌ Error deleting file ${deletedImg}:`, error)
+      }
+    }
 
     if (req.body.assignedTo && req.body.assignedTo !== tool.assignedTo) {
       const newEmployee = await EmployeeModel.findById(req.body.assignedTo);
@@ -668,12 +778,13 @@ export const permanentDelete = async (req: AuthRequest, res: Response): Promise<
     let message = '';
 
     if (type === 'Tool') {
-      const subTools = await SubToolModel.findAll({ 
+      const subTools = await SubToolModel.findAll({
         parentToolId: id,
       });
 
       if (subTools.subTools.length > 0) {
         for (const subTool of subTools.subTools) {
+
           const accCount = await AccessoryModel.hardDeleteBySubTool(subTool.id!);
           deletedAccessoriesCount += accCount;
         }
@@ -1176,5 +1287,7 @@ export default {
   assignTool,
   revokeTool,
   getDeleted,
-  restore
+  restore,
+  uploadImages,
+  deleteImage
 }

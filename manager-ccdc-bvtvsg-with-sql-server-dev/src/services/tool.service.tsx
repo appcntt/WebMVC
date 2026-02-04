@@ -43,8 +43,8 @@ export const toolService = {
   },
 
   permanentDelete: async (id: string, type: 'Tool' | 'SubTool' | 'Accessory' = 'Tool') => {
-    const response = await api.delete(`/tools/${id}/permanent`, { 
-      data: { type } 
+    const response = await api.delete(`/tools/${id}/permanent`, {
+      data: { type }
     });
     return response.data;
   },
@@ -77,7 +77,26 @@ export const toolService = {
   getStatistics: async (params = {}) => {
     const response = await api.get('/tools/statistics', { params });
     return response.data;
-  }
+  },
+
+  uploadImages: async (files: File[]) => {
+    const formData = new FormData();
+    files.forEach(file => {
+      formData.append('images', file);
+    });
+
+    const response = await api.post('/tools/upload-images', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  deleteImage: async (filename: string) => {
+    const response = await api.delete(`/tools/images/${filename}`);
+    return response.data;
+  },
 };
 
 export default toolService;
