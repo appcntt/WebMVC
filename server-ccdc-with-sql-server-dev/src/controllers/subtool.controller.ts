@@ -903,8 +903,6 @@ export const assign = async (req: AuthRequest, res: Response) => {
                 });
                 updatedAccessorysCount++;
             }
-
-            console.log(`✅ Đã cập nhật ${updatedAccessorysCount} linh kiện trong bộ phận ${subTool.name}`);
         }
 
         let historyNote = '';

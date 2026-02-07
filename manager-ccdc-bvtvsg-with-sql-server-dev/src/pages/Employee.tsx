@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, Pencil, Trash2, X, Save, Clock, Eye, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, X, Save, Clock, Eye, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { toolService } from "../services/tool.service";
 import { employeeService } from "../services/employee.service";
 import { unitService } from "../services/unitService";
@@ -86,12 +86,10 @@ export default function Employees() {
     const [selectedEmployeeName, setSelectedEmployeeName] = useState("");
     const [loadingTools, setLoadingTools] = useState(false);
 
-    const [itemsPerPage, setItemsPerPage] = useState(10);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [total, setTotal] = useState(0);
-    const [totalItems, setTotalItems] = useState(0);
-    const [limit] = useState(10);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
 
     const [formData, setFormData] = useState({
         code: "",
@@ -144,7 +142,7 @@ export default function Employees() {
             setLoading(true);
             const params: any = {
                 page: currentPage,
-                limit: itemsPerPage,
+                limit: itemsPerPage === total ? total : itemsPerPage,
             };
 
             if (filterDept) params.departmentId = filterDept;
@@ -153,17 +151,15 @@ export default function Employees() {
             const response = await employeeService.getAll(params);
             setEmployees(response.data || []);
             setTotal(response.total || 0);
-            setTotalItems(response.total || 0);
             setTotalPages(response.totalPages || 1);
             setCurrentPage(response.currentPage || 1);
         } catch (error: any) {
             console.error("Load employees error:", error);
             toast.error(error.response?.data?.message || "Không thể tải danh sách nhân viên");
-            setTotalItems(0);
         } finally {
             setLoading(false);
         }
-    }, [currentPage, itemsPerPage, filterDept, filterStatus]);
+    }, [currentPage, itemsPerPage, filterDept, filterStatus, total]);
 
 
     useEffect(() => {
@@ -198,7 +194,7 @@ export default function Employees() {
                     setLoading(true);
                     const params: any = {
                         page: 1,
-                        limit: itemsPerPage,
+                        limit: itemsPerPage === total ? total : itemsPerPage,
                     };
                     if (filterDept) params.departmentId = filterDept;
                     if (filterStatus) params.status = filterStatus;
@@ -235,7 +231,7 @@ export default function Employees() {
         }, 300);
 
         return () => clearTimeout(delayDebounce);
-    }, [searchTerm, filterDept, limit, filterStatus, itemsPerPage, currentPage]);
+    }, [searchTerm, filterDept, itemsPerPage, filterStatus, total]);
 
     useEffect(() => {
         if (formData.unitId) {
@@ -606,11 +602,43 @@ export default function Employees() {
         }
     };
 
-    // const handlePageChange = (newPage: number) => {
-    //     if (newPage >= 1 && newPage <= totalPages) {
-    //         setCurrentPage(newPage);
-    //     }
-    // };
+    const goToPage = (page: number) => {
+        if (page >= 1 && page <= totalPages) {
+            setCurrentPage(page);
+        }
+    };
+
+    const renderPageNumbers = () => {
+        const pages: (number | string)[] = [];
+        const maxVisiblePages = 5;
+
+        if (totalPages <= maxVisiblePages + 2) {
+            for (let i = 1; i <= totalPages; i++) {
+                pages.push(i);
+            }
+        } else {
+            pages.push(1);
+
+            if (currentPage > 3) {
+                pages.push('...');
+            }
+
+            const startPage = Math.max(2, currentPage - 1);
+            const endPage = Math.min(totalPages - 1, currentPage + 1);
+
+            for (let i = startPage; i <= endPage; i++) {
+                pages.push(i);
+            }
+
+            if (currentPage < totalPages - 2) {
+                pages.push('...');
+            }
+
+            pages.push(totalPages);
+        }
+
+        return pages;
+    };
 
     const getModalWidth = () => {
         if (windowWidth > 1024) return "900px";
@@ -626,32 +654,6 @@ export default function Employees() {
     const getToolModalHeight = () => {
         if (windowWidth > 1024) return "90vh";
         return "85vh";
-    };
-
-
-    const goToPage = (pageNumber: number) => {
-        setCurrentPage(Math.max(1, Math.min(pageNumber, totalPages)));
-    };
-
-    const renderPageNumbers = () => {
-        const pages: (number | string)[] = [];
-        const maxVisible = 5;
-
-        if (totalPages <= maxVisible) {
-            for (let i = 1; i <= totalPages; i++) {
-                pages.push(i);
-            }
-        } else {
-            if (currentPage <= 3) {
-                pages.push(1, 2, 3, 4, '...', totalPages);
-            } else if (currentPage >= totalPages - 2) {
-                pages.push(1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
-            } else {
-                pages.push(1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages);
-            }
-        }
-
-        return pages;
     };
 
     return (
@@ -1018,45 +1020,47 @@ export default function Employees() {
                                 <div className="flex items-center gap-2 text-sm">
                                     <span className="text-gray-700">Hiển thị</span>
                                     <select
-                                        value={itemsPerPage === totalItems ? 'all' : itemsPerPage}
+                                        value={itemsPerPage === total ? 'all' : itemsPerPage}
                                         onChange={(e) => {
                                             const value = e.target.value;
                                             if (value === 'all') {
-                                                setItemsPerPage(totalItems);
+                                                setItemsPerPage(total);
                                             } else {
                                                 setItemsPerPage(Number(value));
                                             }
+                                            setCurrentPage(1);
                                         }}
                                         className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     >
-                                        <option value={5}>5</option>
                                         <option value={10}>10</option>
                                         <option value={20}>20</option>
+                                        <option value={30}>30</option>
                                         <option value={50}>50</option>
+                                        <option value={100}>100</option>
                                         <option value="all">Tất cả</option>
                                     </select>
                                     <span className="text-gray-700">
-                                        {itemsPerPage === totalItems ? `(${totalItems} mục)` : `trên tổng ${totalItems}`}
+                                        {itemsPerPage === total ? `(${total} mục)` : `trên tổng ${total}`}
                                     </span>
                                 </div>
 
                                 <div className="text-sm text-gray-700">
-                                    {itemsPerPage === totalItems
-                                        ? `Hiển thị tất cả ${totalItems} mục`
+                                    {itemsPerPage === total
+                                        ? `Hiển thị tất cả ${total} mục`
                                         : `Trang ${currentPage} / ${totalPages}`
                                     }
                                 </div>
 
                                 <div className="flex items-center gap-1">
                                     <button
-                                        onClick={() => goToPage(currentPage - 1)}
+                                        onClick={() => goToPage(1)}
                                         disabled={currentPage === 1}
                                         className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                     >
                                         <ChevronsLeft className="w-4 h-4" />
                                     </button>
-                                    {itemsPerPage !== totalItems && (
-                                        <div className="flex items-center gap-1">
+                                    {itemsPerPage !== total && (
+                                        <>
                                             <button
                                                 onClick={() => goToPage(currentPage - 1)}
                                                 disabled={currentPage === 1}
@@ -1092,11 +1096,11 @@ export default function Employees() {
                                             >
                                                 <ChevronRight className="w-4 h-4" />
                                             </button>
-                                        </div>
+                                        </>
                                     )}
 
                                     <button
-                                        onClick={() => goToPage(currentPage + 1)}
+                                        onClick={() => goToPage(totalPages)}
                                         disabled={currentPage === totalPages}
                                         className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                     >

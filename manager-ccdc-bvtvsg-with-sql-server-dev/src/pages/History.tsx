@@ -906,7 +906,7 @@ export default function History() {
                                             <div className="bg-orange-50 p-3 sm:p-4 rounded-lg border-2 border-orange-200">
                                                 <h3 className="text-xs sm:text-sm font-medium text-orange-900 mb-2 flex items-center gap-2">
                                                     <User className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                                                    Nhân viên cũ (Bàn giao)
+                                                    Nhân viên quản lí cũ (Bàn giao)
                                                 </h3>
                                                 <div className="space-y-2">
                                                     <div>
@@ -943,7 +943,7 @@ export default function History() {
                                             <div className="bg-green-50 p-3 sm:p-4 rounded-lg border-2 border-green-200">
                                                 <h3 className="text-xs sm:text-sm font-medium text-green-900 mb-2 flex items-center gap-2">
                                                     <User className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                                                    Nhân viên mới (Người nhận)
+                                                    Nhân viên quản lí mới (Người nhận)
                                                 </h3>
                                                 <div className="space-y-2">
                                                     <div>
