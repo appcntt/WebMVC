@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Pencil, Trash2, X, Save, Package, UserPlus, UserMinus, Search, ChevronDown, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Save, Package, UserPlus, UserMinus, Search, ChevronDown, Eye, ChevronLeft, ChevronsLeft , ChevronRight, ChevronsRight} from 'lucide-react';
 import { toolService } from '../services/tool.service';
 import { employeeService } from '../services/employee.service';
 import { unitService } from '../services/unitService';
@@ -1084,7 +1084,7 @@ export default function Tools() {
                                         disabled={currentPage === 1}
                                         className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                     >
-                                        <ChevronLeft className="w-4 h-4" />
+                                        <ChevronsLeft className="w-4 h-4" />
                                     </button>
                                     {itemsPerPage !== totalItems && (
                                         <div className="flex items-center gap-1">
@@ -1131,7 +1131,7 @@ export default function Tools() {
                                         disabled={currentPage === totalPages}
                                         className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                     >
-                                        <ChevronRight className="w-4 h-4" />
+                                        <ChevronsRight className="w-4 h-4" />
                                     </button>
                                 </div>
                             </div>

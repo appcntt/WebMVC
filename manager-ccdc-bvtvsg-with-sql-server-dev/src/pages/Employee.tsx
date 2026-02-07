@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, Pencil, Trash2, X, Save, Clock } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, X, Save, Clock, Eye, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft } from "lucide-react";
 import { toolService } from "../services/tool.service";
 import { employeeService } from "../services/employee.service";
 import { unitService } from "../services/unitService";
@@ -86,9 +86,11 @@ export default function Employees() {
     const [selectedEmployeeName, setSelectedEmployeeName] = useState("");
     const [loadingTools, setLoadingTools] = useState(false);
 
+    const [itemsPerPage, setItemsPerPage] = useState(10);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [total, setTotal] = useState(0);
+    const [totalItems, setTotalItems] = useState(0);
     const [limit] = useState(10);
 
     const [formData, setFormData] = useState({
@@ -142,7 +144,7 @@ export default function Employees() {
             setLoading(true);
             const params: any = {
                 page: currentPage,
-                limit: limit,
+                limit: itemsPerPage,
             };
 
             if (filterDept) params.departmentId = filterDept;
@@ -151,15 +153,17 @@ export default function Employees() {
             const response = await employeeService.getAll(params);
             setEmployees(response.data || []);
             setTotal(response.total || 0);
+            setTotalItems(response.total || 0);
             setTotalPages(response.totalPages || 1);
             setCurrentPage(response.currentPage || 1);
         } catch (error: any) {
             console.error("Load employees error:", error);
             toast.error(error.response?.data?.message || "Không thể tải danh sách nhân viên");
+            setTotalItems(0);
         } finally {
             setLoading(false);
         }
-    }, [currentPage, limit, filterDept, filterStatus]);
+    }, [currentPage, itemsPerPage, filterDept, filterStatus]);
 
 
     useEffect(() => {
@@ -194,7 +198,7 @@ export default function Employees() {
                     setLoading(true);
                     const params: any = {
                         page: 1,
-                        limit: limit,
+                        limit: itemsPerPage,
                     };
                     if (filterDept) params.departmentId = filterDept;
                     if (filterStatus) params.status = filterStatus;
@@ -231,7 +235,7 @@ export default function Employees() {
         }, 300);
 
         return () => clearTimeout(delayDebounce);
-    }, [searchTerm, filterDept, limit, filterStatus]);
+    }, [searchTerm, filterDept, limit, filterStatus, itemsPerPage, currentPage]);
 
     useEffect(() => {
         if (formData.unitId) {
@@ -602,11 +606,11 @@ export default function Employees() {
         }
     };
 
-    const handlePageChange = (newPage: number) => {
-        if (newPage >= 1 && newPage <= totalPages) {
-            setCurrentPage(newPage);
-        }
-    };
+    // const handlePageChange = (newPage: number) => {
+    //     if (newPage >= 1 && newPage <= totalPages) {
+    //         setCurrentPage(newPage);
+    //     }
+    // };
 
     const getModalWidth = () => {
         if (windowWidth > 1024) return "900px";
@@ -622,6 +626,32 @@ export default function Employees() {
     const getToolModalHeight = () => {
         if (windowWidth > 1024) return "90vh";
         return "85vh";
+    };
+
+
+    const goToPage = (pageNumber: number) => {
+        setCurrentPage(Math.max(1, Math.min(pageNumber, totalPages)));
+    };
+
+    const renderPageNumbers = () => {
+        const pages: (number | string)[] = [];
+        const maxVisible = 5;
+
+        if (totalPages <= maxVisible) {
+            for (let i = 1; i <= totalPages; i++) {
+                pages.push(i);
+            }
+        } else {
+            if (currentPage <= 3) {
+                pages.push(1, 2, 3, 4, '...', totalPages);
+            } else if (currentPage >= totalPages - 2) {
+                pages.push(1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+            } else {
+                pages.push(1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages);
+            }
+        }
+
+        return pages;
     };
 
     return (
@@ -822,6 +852,13 @@ export default function Employees() {
                                             {(canEdit || canDelete || canPermanentDelete || canRestore) && (
                                                 <td className="px-2 py-2">
                                                     <div className="flex justify-center gap-0.5">
+                                                        <button
+                                                            onClick={() => openToolModal(emp)}
+                                                            className="text-indigo-600 hover:text-indigo-900 p-1 hover:bg-indigo-50 rounded transition-colors"
+                                                            title="Xem chi tiết"
+                                                        >
+                                                            <Eye className="w-3.5 h-3.5" />
+                                                        </button>
                                                         {canEdit && emp.status === "active" && (
                                                             <button
                                                                 onClick={() => openModal(emp)}
@@ -976,454 +1013,483 @@ export default function Employees() {
                             ))}
                         </div>
 
-                        {totalPages > 1 && (
-                            <div className="flex flex-col sm:flex-row items-center justify-between px-3 sm:px-6 py-2 sm:py-4 border-t bg-gray-50 gap-2">
-                                <div className="text-xs sm:text-sm text-gray-600">
-                                    Trang {currentPage} / {totalPages} ({total} NV)
+                        <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 sm:px-6">
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                                <div className="flex items-center gap-2 text-sm">
+                                    <span className="text-gray-700">Hiển thị</span>
+                                    <select
+                                        value={itemsPerPage === totalItems ? 'all' : itemsPerPage}
+                                        onChange={(e) => {
+                                            const value = e.target.value;
+                                            if (value === 'all') {
+                                                setItemsPerPage(totalItems);
+                                            } else {
+                                                setItemsPerPage(Number(value));
+                                            }
+                                        }}
+                                        className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                    >
+                                        <option value={5}>5</option>
+                                        <option value={10}>10</option>
+                                        <option value={20}>20</option>
+                                        <option value={50}>50</option>
+                                        <option value="all">Tất cả</option>
+                                    </select>
+                                    <span className="text-gray-700">
+                                        {itemsPerPage === totalItems ? `(${totalItems} mục)` : `trên tổng ${totalItems}`}
+                                    </span>
                                 </div>
-                                <div className="flex gap-1 sm:gap-2 flex-wrap justify-center">
-                                    <button
-                                        onClick={() => handlePageChange(1)}
-                                        disabled={currentPage === 1}
-                                        className="px-2 py-1 border rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-                                    >
-                                        ««
-                                    </button>
-                                    <button
-                                        onClick={() => handlePageChange(currentPage - 1)}
-                                        disabled={currentPage === 1}
-                                        className="px-2 py-1 border rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-                                    >
-                                        «
-                                    </button>
 
-                                    {[...Array(totalPages)].map((_, idx) => {
-                                        const page = idx + 1;
-                                        if (
-                                            page === 1 ||
-                                            page === totalPages ||
-                                            (page >= currentPage - 1 && page <= currentPage + 1)
-                                        ) {
-                                            return (
-                                                <button
-                                                    key={page}
-                                                    onClick={() => handlePageChange(page)}
-                                                    className={`px-2 py-1 border rounded-lg text-xs ${currentPage === page
-                                                        ? "bg-indigo-600 text-white"
-                                                        : "hover:bg-gray-100"
-                                                        }`}
-                                                >
-                                                    {page}
-                                                </button>
-                                            );
-                                        } else if (page === currentPage - 2 || page === currentPage + 2) {
-                                            return (
-                                                <span key={page} className="px-1 text-xs">
-                                                    ...
-                                                </span>
-                                            );
-                                        }
-                                        return null;
-                                    })}
+                                <div className="text-sm text-gray-700">
+                                    {itemsPerPage === totalItems
+                                        ? `Hiển thị tất cả ${totalItems} mục`
+                                        : `Trang ${currentPage} / ${totalPages}`
+                                    }
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        onClick={() => goToPage(currentPage - 1)}
+                                        disabled={currentPage === 1}
+                                        className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <ChevronsLeft className="w-4 h-4" />
+                                    </button>
+                                    {itemsPerPage !== totalItems && (
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                onClick={() => goToPage(currentPage - 1)}
+                                                disabled={currentPage === 1}
+                                                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                <ChevronLeft className="w-4 h-4" />
+                                            </button>
+                                            <div className="hidden sm:flex items-center gap-1">
+                                                {renderPageNumbers().map((page, index) => (
+                                                    page === '...' ? (
+                                                        <span key={`ellipsis-${index}`} className="px-3 py-1 text-gray-500">
+                                                            ...
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            key={page}
+                                                            onClick={() => goToPage(page as number)}
+                                                            className={`px-3 py-1 rounded-lg transition-colors ${currentPage === page
+                                                                ? 'bg-indigo-600 text-white font-semibold'
+                                                                : 'border border-gray-300 hover:bg-gray-100 text-gray-700'
+                                                                }`}
+                                                        >
+                                                            {page}
+                                                        </button>
+                                                    )
+                                                ))}
+                                            </div>
+
+                                            <button
+                                                onClick={() => goToPage(currentPage + 1)}
+                                                disabled={currentPage === totalPages}
+                                                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                <ChevronRight className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    )}
 
                                     <button
-                                        onClick={() => handlePageChange(currentPage + 1)}
+                                        onClick={() => goToPage(currentPage + 1)}
                                         disabled={currentPage === totalPages}
-                                        className="px-2 py-1 border rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+                                        className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                     >
-                                        »
-                                    </button>
-                                    <button
-                                        onClick={() => handlePageChange(totalPages)}
-                                        disabled={currentPage === totalPages}
-                                        className="px-2 py-1 border rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-                                    >
-                                        »»
+                                        <ChevronsRight className="w-4 h-4" />
                                     </button>
                                 </div>
                             </div>
-                        )}
+                        </div>
                     </>
                 )}
             </div>
 
             {toolModalVisible && (
-                <div className="fixed inset-0 flex items-center justify-center p-2 sm:p-4 z-50 backdrop-blur-sm bg-white/30">
-                    <div
-                        style={{ width: getToolModalWidth(), height: getToolModalHeight() }}
-                        className="bg-white rounded-xl shadow-2xl overflow-y-auto p-4 sm:p-8"
-                    >
-                        <div className="flex items-center justify-between mb-3 sm:mb-4">
-                            <h2 className="text-lg sm:text-xl font-bold">
-                                Công cụ của {selectedEmployeeName}
-                            </h2>
-                            <button
-                                onClick={() => setToolModalVisible(false)}
-                                className="text-gray-400 hover:text-gray-600"
-                            >
-                                <X className="w-5 h-5 sm:w-6 sm:h-6" />
-                            </button>
-                        </div>
-
-                        {loadingTools ? (
-                            <div className="text-center py-6">
-                                <div className="animate-spin rounded-full h-8 w-8 sm:h-10 sm:w-10 border-b-2 border-indigo-600 mx-auto"></div>
-                            </div>
-                        ) : selectedEmployeeTools.length === 0 ? (
-                            <p className="text-gray-500 text-sm">Nhân viên này chưa sở hữu công cụ nào.</p>
-                        ) : (
-                            <div className="overflow-x-auto">
-                                <div className="flex items-center justify-between mb-3">
-                                    <div className="flex items-center gap-2">
-                                        <label htmlFor="categoryFilter" className="text-xs sm:text-sm text-gray-600">
-                                            Danh mục:
-                                        </label>
-                                        <select
-                                            id="categoryFilter"
-                                            value={selectedCategory}
-                                            onChange={(e) => setSelectedCategory(e.target.value)}
-                                            className="border border-gray-300 rounded-lg px-2 py-1 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
-                                        >
-                                            {uniqueCategories.map((cat) => (
-                                                <option key={cat} value={cat}>
-                                                    {cat}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <table className="w-full table-auto border border-gray-200 text-[10px] sm:text-xs">
-                                    <thead className="bg-indigo-100 text-gray-700">
-                                        <tr>
-                                            <th className="px-2 py-1.5 border-b">Mã</th>
-                                            <th className="px-2 py-1.5 border-b">Tên</th>
-                                            <th className="px-2 py-1.5 border-b">Danh mục</th>
-                                            <th className="px-2 py-1.5 border-b">Hãng</th>
-                                            <th className="px-2 py-1.5 border-b">Ngày mua</th>
-                                            <th className="px-2 py-1.5 border-b">Giá</th>
-                                            <th className="px-2 py-1.5 border-b">BH</th>
-                                            <th className="px-2 py-1.5 border-b">TT</th>
-                                            <th className="px-2 py-1.5 border-b">Tình trạng</th>
-                                            <th className="px-2 py-1.5 border-b">Chi nhánh</th>
-                                            <th className="px-2 py-1.5 border-b">Ngày giao</th>
-                                            <th className="px-2 py-1.5 border-b">Ghi chú</th>
-                                            <th className="px-2 py-1.5 border-b">BH còn</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {[...selectedEmployeeTools]
-                                            .filter(
-                                                (tool) =>
-                                                    selectedCategory === "Tất cả" ||
-                                                    (tool.category?.name || "Khác") === selectedCategory
-                                            )
-                                            .sort((a, b) =>
-                                                (a.category?.name || "").localeCompare(b.category?.name || "")
-                                            )
-                                            .map((tool) => (
-                                                <tr key={tool._id} className="hover:bg-indigo-50 transition-colors">
-                                                    <td className="px-1.5 text-center py-1 border-b">{tool.code}</td>
-                                                    <td
-                                                        onClick={() => openConfigModal(tool._id)}
-                                                        className="px-1.5 text-center py-1 border-b text-indigo-600 cursor-pointer hover:underline max-w-[120px] truncate"
-                                                    >
-                                                        {tool.name}
-                                                    </td>
-                                                    <td className="px-1.5 text-center py-1 border-b">{tool.category?.name || "-"}</td>
-                                                    <td className="px-1.5 text-center py-1 border-b">{tool.brand || "-"}</td>
-                                                    <td className="px-1.5 text-center py-1 border-b whitespace-nowrap">
-                                                        {tool.purchaseDate
-                                                            ? new Date(tool.purchaseDate).toLocaleDateString("vi-VN")
-                                                            : "-"}
-                                                    </td>
-                                                    <td className="px-1.5 text-center py-1 border-b whitespace-nowrap">
-                                                        {tool.purchasePrice ? tool.purchasePrice.toLocaleString() + " đ" : "-"}
-                                                    </td>
-                                                    <td className="px-1.5 text-center py-1 border-b whitespace-nowrap">
-                                                        {tool.warrantyUntil
-                                                            ? new Date(tool.warrantyUntil).toLocaleDateString("vi-VN")
-                                                            : "-"}
-                                                    </td>
-                                                    <td className="px-1.5 text-center py-1 border-b">{tool.status}</td>
-                                                    <td className="px-1.5 text-center py-1 border-b">{tool.condition}</td>
-                                                    <td className="px-1.5 text-center py-1 border-b">{tool.unitId?.name || "-"}</td>
-                                                    <td className="px-1.5 text-center py-1 border-b whitespace-nowrap">
-                                                        {tool.assignedDate
-                                                            ? new Date(tool.assignedDate).toLocaleDateString("vi-VN")
-                                                            : new Date(tool.dateOfReceipt).toLocaleDateString("vi-VN")}
-                                                    </td>
-                                                    <td className="px-1.5 text-center py-1 border-b max-w-[100px] truncate">
-                                                        {tool.description || "-"}
-                                                    </td>
-                                                    <td className="px-1.5 py-1 border-b text-center">
-                                                        {tool.isUnderWarranty ? "✅" : "❌"}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {configModalVisible && (
-                <div className="fixed inset-0 flex items-center justify-center p-4 z-50 backdrop-blur-md bg-gradient-to-br from-black/50 to-black/30 transition-all duration-300 animate-fadeIn">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col animate-fadeIn border border-gray-100 transform transition-all duration-300 scale-95 animate-slideUp">
-                        <div className="flex items-center justify-between px-8 py-6 bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
-                            <div>
-                                <h2 className="text-3xl font-bold tracking-tight">
-                                    Cấu hình chi tiết công cụ
+                <ModalPortal>
+                    <div className="fixed inset-0 flex items-center justify-center p-2 sm:p-4 z-50 backdrop-blur-sm bg-white/30 transition-all duration-300 animate-fadeIn">
+                        <div
+                            style={{ width: getToolModalWidth(), height: getToolModalHeight() }}
+                            className="bg-white rounded-xl shadow-2xl overflow-y-auto p-4 sm:p-8 transform transition-all duration-300 scale-95 animate-slideUp"
+                        >
+                            <div className="flex items-center justify-between mb-3 sm:mb-4">
+                                <h2 className="text-lg sm:text-xl font-bold">
+                                    Công cụ của {selectedEmployeeName}
                                 </h2>
-                                <p className="text-indigo-100 text-sm mt-1">
-                                    Xem thông tin đầy đủ về thành phần và linh kiện
-                                </p>
+                                <button
+                                    onClick={() => setToolModalVisible(false)}
+                                    className="text-gray-400 hover:text-gray-600"
+                                >
+                                    <X className="w-5 h-5 sm:w-6 sm:h-6" />
+                                </button>
                             </div>
-                            <button
-                                onClick={() => {
-                                    setConfigModalVisible(false);
-                                    setSelectedToolConfig(null);
-                                }}
-                                className="text-white/90 hover:text-white hover:bg-white/20 rounded-full p-2 transition-all duration-200"
-                            >
-                                <X className="w-6 h-6" />
-                            </button>
-                        </div>
 
-                        <div className="overflow-y-auto p-8 flex-1">
-                            {loadingConfig ? (
-                                <div className="text-center py-20">
-                                    <div className="animate-spin rounded-full h-16 w-16 border-4 border-indigo-200 border-t-indigo-600 mx-auto"></div>
-                                    <p className="text-gray-500 mt-4 font-medium">
-                                        Đang tải cấu hình...
-                                    </p>
+                            {loadingTools ? (
+                                <div className="text-center py-6">
+                                    <div className="animate-spin rounded-full h-8 w-8 sm:h-10 sm:w-10 border-b-2 border-indigo-600 mx-auto"></div>
                                 </div>
-                            ) : selectedToolConfig ? (
-                                <div className="space-y-8">
-                                    <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-200">
-                                        <div className="flex items-start justify-between">
-                                            <div className="flex-1">
-                                                <h3 className="text-2xl font-bold text-indigo-900 mb-3 flex items-center gap-2">
-                                                    <span className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-sm font-semibold">
-                                                        {selectedToolConfig.tool.code}
-                                                    </span>
-                                                    {selectedToolConfig.tool.name}
-                                                </h3>
-                                                <div className="grid grid-cols-2 gap-4 text-gray-700">
-                                                    <div className="bg-white/60 rounded-xl p-4 backdrop-blur-sm">
-                                                        <p className="text-sm text-gray-600 font-medium mb-1">
-                                                            👤 Người giữ
-                                                        </p>
-                                                        <p className="font-semibold text-gray-900">
-                                                            {selectedToolConfig.tool.assignedTo?.name ||
-                                                                "Chưa có"}
-                                                        </p>
-                                                        <p className="text-sm text-indigo-600">
-                                                            {selectedToolConfig.tool.assignedTo?.position
-                                                                ?.name || ""}
-                                                        </p>
-                                                    </div>
-                                                    <div className="bg-white/60 rounded-xl p-4 backdrop-blur-sm">
-                                                        <p className="text-sm text-gray-600 font-medium mb-1">
-                                                            💰 Giá mua
-                                                        </p>
-                                                        <p className="text-2xl font-bold text-indigo-700">
-                                                            {selectedToolConfig.tool.purchasePrice?.toLocaleString()}{" "}
-                                                            đ
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <div className="flex items-center justify-between mb-4 mt-5">
-                                            <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                                                <span className="text-3xl">🔧</span>
-                                                Danh sách bộ phận
-                                            </h3>
-                                            <span className="bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-semibold shadow-md">
-                                                {selectedToolConfig.summary.totalSubTools} bộ phận
-                                            </span>
-                                        </div>
-
-                                        <div className="space-y-4">
-                                            {selectedToolConfig.configuration.map((item: any, idx: any) => (
-                                                <div
-                                                    key={idx}
-                                                    className="border-2 border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm hover:shadow-lg transition-all duration-300 hover:border-indigo-300"
-                                                >
-                                                    <div className="bg-gradient-to-r from-indigo-500 to-purple-500 p-4 text-white">
-                                                        <div className="flex justify-between items-start">
-                                                            <div className="flex-1">
-                                                                <div className="flex items-center gap-2 mb-2">
-                                                                    <p className="font-bold text-xl">
-                                                                        {item.subTool.name}
-                                                                    </p>
-                                                                </div>
-                                                                <div className="flex gap-4 text-sm text-indigo-100">
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-right">
-                                                                <p className="text-sm text-indigo-100 mb-1">
-                                                                    Giá trị
-                                                                </p>
-                                                                <p className="text-2xl font-bold bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl">
-                                                                    {item.subTool.purchasePrice?.toLocaleString()}{" "}
-                                                                    đ
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    {item.accessorys.length > 0 ? (
-                                                        <div className="overflow-x-auto">
-                                                            <table className="w-full text-sm">
-                                                                <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
-                                                                    <tr>
-                                                                        <th className="px-4 py-3 text-left font-semibold text-gray-700 border-b-2 border-indigo-200">
-                                                                            ⚙️ Tên linh kiện
-                                                                        </th>
-                                                                        <th className="px-4 py-3 text-left font-semibold text-gray-700 border-b-2 border-indigo-200">
-                                                                            ✅ Tình trạng
-                                                                        </th>
-                                                                        <th className="px-4 py-3 text-right font-semibold text-gray-700 border-b-2 border-indigo-200">
-                                                                            💵 Giá
-                                                                        </th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody className="divide-y divide-gray-200">
-                                                                    {item.accessorys.map((comp: any) => (
-                                                                        <tr
-                                                                            key={comp.id}
-                                                                            className="hover:bg-indigo-50/50 transition-colors duration-150"
-                                                                        >
-                                                                            <td className="px-4 py-3 font-medium text-gray-900">
-                                                                                {comp.name}
-                                                                            </td>
-                                                                            <td className="px-4 py-3">
-                                                                                <span
-                                                                                    className={`px-3 py-1 rounded-full text-xs font-semibold ${comp.condition === "Tốt"
-                                                                                        ? "bg-green-100 text-green-700"
-                                                                                        : comp.condition === "Khá"
-                                                                                            ? "bg-blue-100 text-blue-700"
-                                                                                            : comp.condition === "Trung bình"
-                                                                                                ? "bg-yellow-100 text-yellow-700"
-                                                                                                : "bg-red-100 text-red-700"
-                                                                                        }`}
-                                                                                >
-                                                                                    {comp.condition}
-                                                                                </span>
-                                                                            </td>
-                                                                            <td className="px-4 py-3 text-right font-semibold text-indigo-700">
-                                                                                {comp.purchasePrice?.toLocaleString()} đ
-                                                                            </td>
-                                                                        </tr>
-                                                                    ))}
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="text-center py-8 bg-gray-50">
-                                                            <p className="text-gray-400 text-sm italic flex items-center justify-center gap-2">
-                                                                <span className="text-2xl">📭</span>
-                                                                Không có linh kiện nào
-                                                            </p>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 border-2 border-indigo-200 rounded-2xl p-6 shadow-lg mt-6">
-                                        <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                            <span className="text-3xl">📊</span>
-                                            Tổng kết
-                                        </h3>
-
-                                        <div className="grid grid-cols-3 gap-4 mb-6">
-                                            <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 text-center shadow-sm hover:shadow-md transition-shadow duration-200">
-                                                <p className="text-gray-600 text-sm font-medium mb-1">
-                                                    Bộ phận
-                                                </p>
-                                                <p className="text-3xl font-bold text-indigo-600">
-                                                    {selectedToolConfig.summary.totalSubTools}
-                                                </p>
-                                            </div>
-                                            <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 text-center shadow-sm hover:shadow-md transition-shadow duration-200">
-                                                <p className="text-gray-600 text-sm font-medium mb-1">
-                                                    Linh kiện
-                                                </p>
-                                                <p className="text-3xl font-bold text-purple-600">
-                                                    {selectedToolConfig.summary.totalAccessorys}
-                                                </p>
-                                            </div>
-                                            <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 text-center shadow-sm hover:shadow-md transition-shadow duration-200">
-                                                <p className="text-gray-600 text-sm font-medium mb-1">
-                                                    Tổng giá trị
-                                                </p>
-                                                <p className="text-2xl font-bold text-pink-600">
-                                                    {selectedToolConfig.tool.purchasePrice?.toLocaleString()}{" "}
-                                                    đ
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        <div className="bg-white/80 backdrop-blur-sm rounded-xl p-5 space-y-3">
-                                            <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                                                <span>💎</span>
-                                                Chi tiết giá trị
-                                            </h4>
-                                            <div className="space-y-2">
-                                                <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors duration-200">
-                                                    <span className="text-gray-700 font-medium flex items-center gap-2">
-                                                        <span className="text-xl">🧩</span>
-                                                        CCDC
-                                                    </span>
-                                                    <span className="font-bold text-indigo-700 text-lg">
-                                                        {selectedToolConfig.summary.breakdown.tool.toLocaleString()}{" "}
-                                                        đ
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors duration-200">
-                                                    <span className="text-gray-700 font-medium flex items-center gap-2">
-                                                        <span className="text-xl">🧱</span>
-                                                        Thành phần
-                                                    </span>
-                                                    <span className="font-bold text-purple-700 text-lg">
-                                                        {selectedToolConfig.summary.breakdown.subTools.toLocaleString()}{" "}
-                                                        đ
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between items-center p-3 bg-pink-50 rounded-lg hover:bg-pink-100 transition-colors duration-200">
-                                                    <span className="text-gray-700 font-medium flex items-center gap-2">
-                                                        <span className="text-xl">⚙️</span>
-                                                        Linh kiện
-                                                    </span>
-                                                    <span className="font-bold text-pink-700 text-lg">
-                                                        {selectedToolConfig.summary.breakdown.accessorys.toLocaleString()}{" "}
-                                                        đ
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                            ) : selectedEmployeeTools.length === 0 ? (
+                                <p className="text-gray-500 text-sm">Nhân viên này chưa sở hữu công cụ nào.</p>
                             ) : (
-                                <div className="text-center py-20">
-                                    <span className="text-6xl mb-4 block">📭</span>
-                                    <p className="text-gray-500 text-lg">
-                                        Không có dữ liệu cấu hình
-                                    </p>
+                                <div className="overflow-x-auto">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                            <label htmlFor="categoryFilter" className="text-xs sm:text-sm text-gray-600">
+                                                Danh mục:
+                                            </label>
+                                            <select
+                                                id="categoryFilter"
+                                                value={selectedCategory}
+                                                onChange={(e) => setSelectedCategory(e.target.value)}
+                                                className="border border-gray-300 rounded-lg px-2 py-1 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                                            >
+                                                {uniqueCategories.map((cat) => (
+                                                    <option key={cat} value={cat}>
+                                                        {cat}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <table className="w-full table-auto border border-gray-200 text-[10px] sm:text-xs">
+                                        <thead className="bg-indigo-100 text-gray-700">
+                                            <tr>
+                                                <th className="px-2 py-1.5 border-b">Mã</th>
+                                                <th className="px-2 py-1.5 border-b">Tên</th>
+                                                <th className="px-2 py-1.5 border-b">Danh mục</th>
+                                                <th className="px-2 py-1.5 border-b">Hãng</th>
+                                                <th className="px-2 py-1.5 border-b">Ngày mua</th>
+                                                <th className="px-2 py-1.5 border-b">Giá</th>
+                                                <th className="px-2 py-1.5 border-b">BH</th>
+                                                <th className="px-2 py-1.5 border-b">TT</th>
+                                                <th className="px-2 py-1.5 border-b">Tình trạng</th>
+                                                <th className="px-2 py-1.5 border-b">Chi nhánh</th>
+                                                <th className="px-2 py-1.5 border-b">Ngày giao</th>
+                                                <th className="px-2 py-1.5 border-b">Ghi chú</th>
+                                                <th className="px-2 py-1.5 border-b">BH còn</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {[...selectedEmployeeTools]
+                                                .filter(
+                                                    (tool) =>
+                                                        selectedCategory === "Tất cả" ||
+                                                        (tool.category?.name || "Khác") === selectedCategory
+                                                )
+                                                .sort((a, b) =>
+                                                    (a.category?.name || "").localeCompare(b.category?.name || "")
+                                                )
+                                                .map((tool) => (
+                                                    <tr key={tool.id} className="hover:bg-indigo-50 transition-colors">
+                                                        <td className="px-1.5 text-center py-1 border-b">{tool.code}</td>
+                                                        <td
+                                                            onClick={() => openConfigModal(tool.id)}
+                                                            className="px-1.5 text-center py-1 border-b text-indigo-600 cursor-pointer hover:underline max-w-[120px] truncate"
+                                                        >
+                                                            {tool.name}
+                                                        </td>
+                                                        <td className="px-1.5 text-center py-1 border-b">{tool.category?.name || "-"}</td>
+                                                        <td className="px-1.5 text-center py-1 border-b">{tool.brand || "-"}</td>
+                                                        <td className="px-1.5 text-center py-1 border-b whitespace-nowrap">
+                                                            {tool.purchaseDate
+                                                                ? new Date(tool.purchaseDate).toLocaleDateString("vi-VN")
+                                                                : "-"}
+                                                        </td>
+                                                        <td className="px-1.5 text-center py-1 border-b whitespace-nowrap">
+                                                            {tool.purchasePrice ? tool.purchasePrice.toLocaleString() + " đ" : "-"}
+                                                        </td>
+                                                        <td className="px-1.5 text-center py-1 border-b whitespace-nowrap">
+                                                            {tool.warrantyUntil
+                                                                ? new Date(tool.warrantyUntil).toLocaleDateString("vi-VN")
+                                                                : "-"}
+                                                        </td>
+                                                        <td className="px-1.5 text-center py-1 border-b">{tool.status}</td>
+                                                        <td className="px-1.5 text-center py-1 border-b">{tool.condition}</td>
+                                                        <td className="px-1.5 text-center py-1 border-b">{tool.unitId?.name || "-"}</td>
+                                                        <td className="px-1.5 text-center py-1 border-b whitespace-nowrap">
+                                                            {tool.assignedDate
+                                                                ? new Date(tool.assignedDate).toLocaleDateString("vi-VN")
+                                                                : new Date(tool.dateOfReceipt).toLocaleDateString("vi-VN")}
+                                                        </td>
+                                                        <td className="px-1.5 text-center py-1 border-b max-w-[100px] truncate">
+                                                            {tool.description || "-"}
+                                                        </td>
+                                                        <td className="px-1.5 py-1 border-b text-center">
+                                                            {tool.isUnderWarranty ? "✅" : "❌"}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                        </tbody>
+                                    </table>
                                 </div>
                             )}
                         </div>
                     </div>
-                </div>
+                </ModalPortal>
+            )}
+
+            {configModalVisible && (
+                <ModalPortal>
+                    <div className="fixed inset-0 flex items-center justify-center p-4 z-50 backdrop-blur-md bg-gradient-to-br from-black/50 to-black/30 transition-all duration-300 animate-fadeIn">
+                        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col animate-fadeIn border border-gray-100 transform transition-all duration-300 scale-95 animate-slideUp">
+                            <div className="flex items-center justify-between px-8 py-6 bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
+                                <div>
+                                    <h2 className="text-3xl font-bold tracking-tight">
+                                        Cấu hình chi tiết công cụ
+                                    </h2>
+                                    <p className="text-indigo-100 text-sm mt-1">
+                                        Xem thông tin đầy đủ về thành phần và linh kiện
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setConfigModalVisible(false);
+                                        setSelectedToolConfig(null);
+                                    }}
+                                    className="text-white/90 hover:text-white hover:bg-white/20 rounded-full p-2 transition-all duration-200"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                            </div>
+
+                            <div className="overflow-y-auto p-8 flex-1">
+                                {loadingConfig ? (
+                                    <div className="text-center py-20">
+                                        <div className="animate-spin rounded-full h-16 w-16 border-4 border-indigo-200 border-t-indigo-600 mx-auto"></div>
+                                        <p className="text-gray-500 mt-4 font-medium">
+                                            Đang tải cấu hình...
+                                        </p>
+                                    </div>
+                                ) : selectedToolConfig ? (
+                                    <div className="space-y-8">
+                                        <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-200">
+                                            <div className="flex items-start justify-between">
+                                                <div className="flex-1">
+                                                    <h3 className="text-2xl font-bold text-indigo-900 mb-3 flex items-center gap-2">
+                                                        <span className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-sm font-semibold">
+                                                            {selectedToolConfig.tool.code}
+                                                        </span>
+                                                        {selectedToolConfig.tool.name}
+                                                    </h3>
+                                                    <div className="grid grid-cols-2 gap-4 text-gray-700">
+                                                        <div className="bg-white/60 rounded-xl p-4 backdrop-blur-sm">
+                                                            <p className="text-sm text-gray-600 font-medium mb-1">
+                                                                👤 Người giữ
+                                                            </p>
+                                                            <p className="font-semibold text-gray-900">
+                                                                {selectedToolConfig.tool.assignedTo?.name ||
+                                                                    "Chưa có"}
+                                                            </p>
+                                                            <p className="text-sm text-indigo-600">
+                                                                {selectedToolConfig.tool.assignedTo?.position
+                                                                    ?.name || ""}
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-white/60 rounded-xl p-4 backdrop-blur-sm">
+                                                            <p className="text-sm text-gray-600 font-medium mb-1">
+                                                                💰 Giá mua
+                                                            </p>
+                                                            <p className="text-2xl font-bold text-indigo-700">
+                                                                {selectedToolConfig.tool.purchasePrice?.toLocaleString()}{" "}
+                                                                đ
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <div className="flex items-center justify-between mb-4 mt-5">
+                                                <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                                    <span className="text-3xl">🔧</span>
+                                                    Danh sách bộ phận
+                                                </h3>
+                                                <span className="bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-semibold shadow-md">
+                                                    {selectedToolConfig.summary.totalSubTools} bộ phận
+                                                </span>
+                                            </div>
+
+                                            <div className="space-y-4">
+                                                {selectedToolConfig.configuration.map((item: any, idx: any) => (
+                                                    <div
+                                                        key={idx}
+                                                        className="border-2 border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm hover:shadow-lg transition-all duration-300 hover:border-indigo-300"
+                                                    >
+                                                        <div className="bg-gradient-to-r from-indigo-500 to-purple-500 p-4 text-white">
+                                                            <div className="flex justify-between items-start">
+                                                                <div className="flex-1">
+                                                                    <div className="flex items-center gap-2 mb-2">
+                                                                        <p className="font-bold text-xl">
+                                                                            {item.subTool.name}
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="flex gap-4 text-sm text-indigo-100">
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <p className="text-sm text-indigo-100 mb-1">
+                                                                        Giá trị
+                                                                    </p>
+                                                                    <p className="text-2xl font-bold bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl">
+                                                                        {item.subTool.purchasePrice?.toLocaleString()}{" "}
+                                                                        đ
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {item.accessories.length > 0 ? (
+                                                            <div className="overflow-x-auto">
+                                                                <table className="w-full text-sm">
+                                                                    <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+                                                                        <tr>
+                                                                            <th className="px-4 py-3 text-left font-semibold text-gray-700 border-b-2 border-indigo-200">
+                                                                                ⚙️ Tên linh kiện
+                                                                            </th>
+                                                                            <th className="px-4 py-3 text-left font-semibold text-gray-700 border-b-2 border-indigo-200">
+                                                                                ✅ Tình trạng
+                                                                            </th>
+                                                                            <th className="px-4 py-3 text-right font-semibold text-gray-700 border-b-2 border-indigo-200">
+                                                                                💵 Giá
+                                                                            </th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-200">
+                                                                        {item.accessories.map((comp: any) => (
+                                                                            <tr
+                                                                                key={comp.id}
+                                                                                className="hover:bg-indigo-50/50 transition-colors duration-150"
+                                                                            >
+                                                                                <td className="px-4 py-3 font-medium text-gray-900">
+                                                                                    {comp.name}
+                                                                                </td>
+                                                                                <td className="px-4 py-3">
+                                                                                    <span
+                                                                                        className={`px-3 py-1 rounded-full text-xs font-semibold ${comp.condition === "Tốt"
+                                                                                            ? "bg-green-100 text-green-700"
+                                                                                            : comp.condition === "Khá"
+                                                                                                ? "bg-blue-100 text-blue-700"
+                                                                                                : comp.condition === "Trung bình"
+                                                                                                    ? "bg-yellow-100 text-yellow-700"
+                                                                                                    : "bg-red-100 text-red-700"
+                                                                                            }`}
+                                                                                    >
+                                                                                        {comp.condition}
+                                                                                    </span>
+                                                                                </td>
+                                                                                <td className="px-4 py-3 text-right font-semibold text-indigo-700">
+                                                                                    {comp.purchasePrice?.toLocaleString()} đ
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-center py-8 bg-gray-50">
+                                                                <p className="text-gray-400 text-sm italic flex items-center justify-center gap-2">
+                                                                    <span className="text-2xl">📭</span>
+                                                                    Không có linh kiện nào
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 border-2 border-indigo-200 rounded-2xl p-6 shadow-lg mt-6">
+                                            <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                                <span className="text-3xl">📊</span>
+                                                Tổng kết
+                                            </h3>
+
+                                            <div className="grid grid-cols-3 gap-4 mb-6">
+                                                <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 text-center shadow-sm hover:shadow-md transition-shadow duration-200">
+                                                    <p className="text-gray-600 text-sm font-medium mb-1">
+                                                        Bộ phận
+                                                    </p>
+                                                    <p className="text-3xl font-bold text-indigo-600">
+                                                        {selectedToolConfig.summary.totalSubTools}
+                                                    </p>
+                                                </div>
+                                                <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 text-center shadow-sm hover:shadow-md transition-shadow duration-200">
+                                                    <p className="text-gray-600 text-sm font-medium mb-1">
+                                                        Linh kiện
+                                                    </p>
+                                                    <p className="text-3xl font-bold text-purple-600">
+                                                        {selectedToolConfig.summary.totalAccessorys}
+                                                    </p>
+                                                </div>
+                                                <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 text-center shadow-sm hover:shadow-md transition-shadow duration-200">
+                                                    <p className="text-gray-600 text-sm font-medium mb-1">
+                                                        Tổng giá trị
+                                                    </p>
+                                                    <p className="text-2xl font-bold text-pink-600">
+                                                        {selectedToolConfig.tool.purchasePrice?.toLocaleString()}{" "}
+                                                        đ
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-white/80 backdrop-blur-sm rounded-xl p-5 space-y-3">
+                                                <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                                    <span>💎</span>
+                                                    Chi tiết giá trị
+                                                </h4>
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors duration-200">
+                                                        <span className="text-gray-700 font-medium flex items-center gap-2">
+                                                            <span className="text-xl">🧩</span>
+                                                            CCDC
+                                                        </span>
+                                                        <span className="font-bold text-indigo-700 text-lg">
+                                                            {selectedToolConfig.summary.breakdown.tool.toLocaleString()}{" "}
+                                                            đ
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors duration-200">
+                                                        <span className="text-gray-700 font-medium flex items-center gap-2">
+                                                            <span className="text-xl">🧱</span>
+                                                            Thành phần
+                                                        </span>
+                                                        <span className="font-bold text-purple-700 text-lg">
+                                                            {selectedToolConfig.summary.breakdown.subTools.toLocaleString()}{" "}
+                                                            đ
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center p-3 bg-pink-50 rounded-lg hover:bg-pink-100 transition-colors duration-200">
+                                                        <span className="text-gray-700 font-medium flex items-center gap-2">
+                                                            <span className="text-xl">⚙️</span>
+                                                            Linh kiện
+                                                        </span>
+                                                        <span className="font-bold text-pink-700 text-lg">
+                                                            {selectedToolConfig.summary.breakdown.accessories.toLocaleString()}{" "}
+                                                            đ
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-20">
+                                        <span className="text-6xl mb-4 block">📭</span>
+                                        <p className="text-gray-500 text-lg">
+                                            Không có dữ liệu cấu hình
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </ModalPortal>
             )}
 
             {
@@ -1478,7 +1544,6 @@ export default function Employees() {
                                                 placeholder={editingEmployee ? "Để trống nếu không đổi mật khẩu" : "Nhập mật khẩu"}
                                             />
                                         </div>
-
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 Đơn vị <span className="text-red-500">*</span>
@@ -1515,7 +1580,6 @@ export default function Employees() {
                                                 </p>
                                             )}
                                         </div>
-
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">Phòng ban <span className="text-red-500">*</span></label>
                                             <select

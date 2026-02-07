@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Clock, Package, User, ChevronDown, FileText, Search, Filter, Calendar, Trash2, Eye, ChevronLeft, ChevronRight, X, ArrowRightLeft } from 'lucide-react';
+import { Clock, Package, User, ChevronDown, FileText, Search, Filter, Calendar, Trash2, Eye, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X, ArrowRightLeft } from 'lucide-react';
 import { toolHistoryService } from '../services/history.service';
 import { employeeService } from '../services/employee.service';
 import { usePermission } from "../hooks/usePermission";
@@ -80,6 +80,7 @@ interface StatsData {
 export default function History() {
     const [histories, setHistories] = useState<HistoryItem[]>([]);
     const [employees, setEmployees] = useState<Employee[]>([]);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
     const [stats, setStats] = useState<StatsData | null>(null);
     const [loading, setLoading] = useState(false);
     const [showDetailModal, setShowDetailModal] = useState(false);
@@ -98,7 +99,7 @@ export default function History() {
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [total, setTotal] = useState(0);
-    const limit = 10;
+    // const limit = 10;
 
     const [employeeDropdownOpen, setEmployeeDropdownOpen] = useState(false);
     const [employeeSearchTerm, setEmployeeSearchTerm] = useState('');
@@ -134,7 +135,7 @@ export default function History() {
         loadHistories();
         loadEmployees();
         loadStats();
-    }, [filterTool, filterEmployee, filterAction, startDate, endDate, currentPage]);
+    }, [currentPage, itemsPerPage, filterTool, filterEmployee, filterAction, startDate, endDate]);
 
     useEffect(() => {
         setSelectedIds([]);
@@ -146,7 +147,7 @@ export default function History() {
             setLoading(true);
             const params: HistoryFilterParams = {
                 page: currentPage,
-                limit
+                limit: itemsPerPage,
             };
 
             if (filterTool) params.toolId = filterTool;
@@ -340,6 +341,31 @@ export default function History() {
             'Xóa': <Trash2 className="w-6 h-6 sm:w-8 sm:h-8 text-red-600" />
         };
         return icons[action] || <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-gray-600" />;
+    };
+
+    const goToPage = (pageNumber: number) => {
+        setCurrentPage(Math.max(1, Math.min(pageNumber, totalPages)));
+    };
+
+    const renderPageNumbers = () => {
+        const pages: (number | string)[] = [];
+        const maxVisible = 5;
+
+        if (totalPages <= maxVisible) {
+            for (let i = 1; i <= totalPages; i++) {
+                pages.push(i);
+            }
+        } else {
+            if (currentPage <= 3) {
+                pages.push(1, 2, 3, 4, '...', totalPages);
+            } else if (currentPage >= totalPages - 2) {
+                pages.push(1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+            } else {
+                pages.push(1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages);
+            }
+        }
+
+        return pages;
     };
 
     return (
@@ -728,55 +754,97 @@ export default function History() {
                             </table>
                         </div>
 
-                        <div className="bg-white px-3 sm:px-6 py-2 sm:py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-2">
-                            <div className="text-xs sm:text-sm text-gray-700">
-                                <span className="font-medium">{(currentPage - 1) * limit + 1}</span> đến{' '}
-                                <span className="font-medium">{Math.min(currentPage * limit, total)}</span>{' '}
-                                / <span className="font-medium">{total}</span>
-                            </div>
-                            <div className="flex gap-1 sm:gap-2 flex-wrap justify-center">
-                                <button
-                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                    disabled={currentPage === 1}
-                                    className="px-2 sm:px-3 py-1 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 text-xs"
-                                >
-                                    <ChevronLeft className="w-3 h-3" />
-                                    <span className="hidden sm:inline">Trước</span>
-                                </button>
-                                <div className="flex items-center gap-1">
-                                    {[...Array(totalPages)].map((_, i) => {
-                                        const page = i + 1;
-                                        if (
-                                            page === 1 ||
-                                            page === totalPages ||
-                                            (page >= currentPage - 1 && page <= currentPage + 1)
-                                        ) {
-                                            return (
-                                                <button
-                                                    key={page}
-                                                    onClick={() => setCurrentPage(page)}
-                                                    className={`px-2 py-1 rounded-lg text-xs ${currentPage === page
-                                                        ? 'bg-indigo-600 text-white'
-                                                        : 'border border-gray-300 hover:bg-gray-50'
-                                                        }`}
-                                                >
-                                                    {page}
-                                                </button>
-                                            );
-                                        } else if (page === currentPage - 2 || page === currentPage + 2) {
-                                            return <span key={page} className="text-xs">...</span>;
-                                        }
-                                        return null;
-                                    })}
+                        <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 sm:px-6">
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                                <div className="flex items-center gap-2 text-sm">
+                                    <span className="text-gray-700">Hiển thị</span>
+                                    <select
+                                        value={itemsPerPage === total ? 'all' : itemsPerPage}
+                                        onChange={(e) => {
+                                            const value = e.target.value;
+                                            if (value === 'all') {
+                                                setItemsPerPage(total);
+                                            } else {
+                                                setItemsPerPage(Number(value));
+                                            }
+                                            setCurrentPage(1);
+                                        }}
+                                        className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                    >
+                                        <option value={5}>5</option>
+                                        <option value={10}>10</option>
+                                        <option value={20}>20</option>
+                                        <option value={50}>50</option>
+                                        <option value="all">Tất cả</option>
+                                    </select>
+                                    <span className="text-gray-700">
+                                        {itemsPerPage === total ? `(${total} mục)` : `trên tổng ${total}`}
+                                    </span>
                                 </div>
-                                <button
-                                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                    disabled={currentPage === totalPages}
-                                    className="px-2 sm:px-3 py-1 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 text-xs"
-                                >
-                                    <span className="hidden sm:inline">Sau</span>
-                                    <ChevronRight className="w-3 h-3" />
-                                </button>
+
+                                <div className="text-sm text-gray-700">
+                                    {itemsPerPage === total
+                                        ? `Hiển thị tất cả ${total} mục`
+                                        : `Trang ${currentPage} / ${totalPages}`
+                                    }
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        onClick={() => goToPage(1)}
+                                        disabled={currentPage === 1}
+                                        className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <ChevronsLeft className="w-4 h-4" />
+                                    </button>
+                                    {itemsPerPage !== total && (
+                                        <>
+                                            <button
+                                                onClick={() => goToPage(currentPage - 1)}
+                                                disabled={currentPage === 1}
+                                                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                <ChevronLeft className="w-4 h-4" />
+                                            </button>
+                                            <div className="hidden sm:flex items-center gap-1">
+                                                {renderPageNumbers().map((page, index) => (
+                                                    page === '...' ? (
+                                                        <span key={`ellipsis-${index}`} className="px-3 py-1 text-gray-500">
+                                                            ...
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            key={page}
+                                                            onClick={() => goToPage(page as number)}
+                                                            className={`px-3 py-1 rounded-lg transition-colors ${currentPage === page
+                                                                ? 'bg-indigo-600 text-white font-semibold'
+                                                                : 'border border-gray-300 hover:bg-gray-100 text-gray-700'
+                                                            }`}
+                                                        >
+                                                            {page}
+                                                        </button>
+                                                    )
+                                                ))}
+                                            </div>
+
+                                            <button
+                                                onClick={() => goToPage(currentPage + 1)}
+                                                disabled={currentPage === totalPages}
+                                                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                <ChevronRight className="w-4 h-4" />
+                                            </button>
+                                        </>
+                                    )}
+
+                                    <button
+                                        onClick={() => goToPage(totalPages)}
+                                        disabled={currentPage === totalPages}
+                                        className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <ChevronsRight className="w-4 h-4" />
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </>
